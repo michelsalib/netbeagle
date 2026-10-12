@@ -56,6 +56,7 @@ export function parseSockets(
 			state,
 			uid: Number(uid),
 			inode: Number(inode),
+			...(inode === "0" && { orphan: true }),
 		});
 	}
 	return out;

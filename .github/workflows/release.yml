@@ -1,5 +1,5 @@
 # Push a tag vX.Y.Z (after a PR that bumps package.json) to publish: npm (for npx/bunx/npm -g),
-# then a GitHub release for install.sh, with the standalone binaries.
+# then a GitHub release for install.sh and install.ps1, with the standalone binaries.
 #
 # Three jobs, so untrusted work never holds a write token: tests, then a read-only build, then a
 # publish job that waits for approval in the `release` environment, attests the exact files it
@@ -17,9 +17,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -54,13 +54,13 @@ jobs:
         run: test "${GITHUB_REF_NAME#v}" = "$(node -p 'require("./package.json").version')"
       - run: bun install --frozen-lockfile
       - run: bun run build
-      # cross-compiled here for both architectures; CI checks each one runs on its own
+      # cross-compiled here for every platform; CI checks each one runs on its own
       - run: bun run build:bin
       - run: shellcheck install.sh
       - name: Release files
         run: |
           mkdir release
-          cp dist/netbeagle.js dist/bin/* install.sh release/
+          cp dist/netbeagle.js dist/bin/* install.sh install.ps1 release/
           (cd release && sha256sum * > SHA256SUMS)
           cat release/SHA256SUMS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

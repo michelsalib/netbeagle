@@ -8,8 +8,8 @@
 # NETBEAGLE_BINARY=1     install the standalone binary even when Node or Bun is there
 #
 # netbeagle is one small JavaScript file that runs on Node >= 20 or Bun. Without either, install.sh
-# installs the standalone binary instead (x64 and arm64), which needs nothing. Linux only, WSL
-# included: netbeagle reads Linux's /proc and /sys.
+# installs the standalone binary instead (Linux and macOS, x64 and arm64), which needs nothing.
+# On Windows, use install.ps1.
 set -eu
 
 # Everything runs from main, called on the last line: if the download is cut short,
@@ -17,9 +17,6 @@ set -eu
 main() {
 say() { printf '%s\n' "$*"; }
 fail() { printf 'netbeagle install: %s\n' "$*" >&2; exit 1; }
-
-[ "$(uname -s)" = Linux ] ||
-  fail "netbeagle reads Linux's /proc and /sys, so it runs on Linux and WSL for now, not on $(uname -s)"
 
 repo=michelsalib/netbeagle
 dir=${NETBEAGLE_INSTALL_DIR:-$HOME/.local/bin}
@@ -58,12 +55,17 @@ fi
 
 file=netbeagle.js
 if [ "$runtime" = binary ]; then
+  case $(uname -s) in
+    Linux) os=linux ;;
+    Darwin) os=darwin ;;
+    *) fail "no netbeagle binary for $(uname -s); install Node >= 20 or Bun (https://nodejs.org, https://bun.sh), or on Windows use install.ps1" ;;
+  esac
   case $(uname -m) in
     x86_64 | amd64) arch=x64 ;;
     aarch64 | arm64) arch=arm64 ;;
     *) fail "no netbeagle binary for $(uname -m); install Node >= 20 or Bun (https://nodejs.org, https://bun.sh)" ;;
   esac
-  file=netbeagle-linux-$arch
+  file=netbeagle-$os-$arch
 fi
 
 if command -v curl >/dev/null 2>&1; then
@@ -74,7 +76,13 @@ else
   fail "needs curl or wget to download netbeagle"
 fi
 
-command -v sha256sum >/dev/null 2>&1 || fail "needs sha256sum to check the download"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  fail "needs sha256sum or shasum to check the download"
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
@@ -83,7 +91,7 @@ download "$base/$file" "$tmp/$file" || fail "could not download $base/$file"
 download "$base/SHA256SUMS" "$tmp/SHA256SUMS" || fail "could not download $base/SHA256SUMS"
 expected=$(awk -v f="$file" '$2 == f || $2 == "*" f { print $1 }' "$tmp/SHA256SUMS")
 [ -n "$expected" ] || fail "SHA256SUMS has no entry for $file"
-[ "$(sha256sum "$tmp/$file" | cut -d' ' -f1)" = "$expected" ] || fail "checksum mismatch for $file; nothing was installed"
+[ "$(sha256 "$tmp/$file")" = "$expected" ] || fail "checksum mismatch for $file; nothing was installed"
 
 # the build starts with `#!/usr/bin/env node`
 if [ "$runtime" = bun ]; then

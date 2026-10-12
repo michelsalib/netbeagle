@@ -16,6 +16,8 @@ export interface RenderOptions {
 	width?: number;
 	/** In WSL, Windows forwards its localhost to ports bound to 127.0.0.1 or every interface. */
 	wsl?: boolean;
+	/** A Windows snapshot: other users' processes need an administrator terminal, not sudo. */
+	windows?: boolean;
 }
 
 export function paint(o: RenderOptions) {
@@ -71,6 +73,10 @@ function table(
 
 export const procLabel = (p: Process) => `${p.name} ${p.pid}`;
 
+/** How to see other users' processes: sudo, or on Windows an administrator terminal. */
+export const elevate = (o?: RenderOptions) =>
+	o?.windows ? "run as administrator" : "run with sudo";
+
 /** Our side of a connection: its process, else its user, else nobody (closing). */
 const connOwner = (x: Connection) =>
 	x.process
@@ -80,11 +86,14 @@ const connOwner = (x: Connection) =>
 			: "closing, no process";
 
 /** Who is behind a listener: its container, its process, or at least its user. */
-export function ownerLabel(l: Listener): string {
+export function ownerLabel(l: Listener, o?: RenderOptions): string {
 	if (l.container)
 		return `container ${l.container.name}${l.published ? ` :${l.published.containerPort}` : ""}`;
 	if (l.process) return procLabel(l.process);
-	return `${l.user}'s process (sudo to see it)`;
+	// Windows names every socket's process; one gone since keeps its pid
+	const pid = l.sockets.find((s) => s.pid !== undefined)?.pid;
+	if (pid !== undefined) return `pid ${pid}`;
+	return `${l.user ?? "another user"}'s process (${o?.windows ? "run as administrator" : "sudo"} to see it)`;
 }
 
 export function reachLabel(l: Listener, o: RenderOptions): string {
@@ -94,7 +103,9 @@ export function reachLabel(l: Listener, o: RenderOptions): string {
 		l.reach.scope === "local"
 			? "this machine only"
 			: l.reach.scope === "everywhere"
-				? "every interface"
+				? l.reach.ipv6Only
+					? "every interface, IPv6 only"
+					: "every interface"
 				: l.reach.interfaces.join(", ") || "no interface";
 	return windows ? `${base} + Windows` : base;
 }
@@ -102,14 +113,17 @@ export function reachLabel(l: Listener, o: RenderOptions): string {
 const addressLabel = (l: Listener) => {
 	const a = l.addresses;
 	if (a.length === 2 && a.includes("0.0.0.0") && a.includes("::")) return "*";
-	return a.join(", ");
+	// a service bound to each address on its own (Windows' SSDP has six): the first two
+	return a.length > 2
+		? `${a.slice(0, 2).join(", ")} +${a.length - 2}`
+		: a.join(", ");
 };
 
-export function peerLabel(p: Peer, remote: string): string {
+export function peerLabel(p: Peer, remote: string, o?: RenderOptions): string {
 	switch (p.kind) {
 		case "local": {
 			const who = p.listener
-				? ownerLabel(p.listener)
+				? ownerLabel(p.listener, o)
 				: p.process
 					? procLabel(p.process)
 					: (p.user && `${p.user}'s process`) || "this machine";
@@ -139,7 +153,7 @@ export function renderList(ls: Listener[], o: RenderOptions): string {
 			addressLabel(l),
 			reachLabel(l, o),
 			l.clients.length ? String(l.clients.length) : "",
-			ownerLabel(l),
+			ownerLabel(l, o),
 		]),
 	];
 	const reach = (s: string) =>
@@ -283,7 +297,7 @@ export function renderConnections(
 				x.peer.kind === "remote" ? c.dim(routeVia(x.peer.route)) : "";
 			const state = x.state === "ESTABLISHED" ? "" : c.yellow(x.state);
 			const line = [
-				`  ${mine}${arrow} ${peerLabel(x.peer, endpoint(x.remote))}`,
+				`  ${mine}${arrow} ${peerLabel(x.peer, endpoint(x.remote), o)}`,
 				where,
 				state,
 			]
@@ -303,17 +317,19 @@ export function renderWho(r: WhoReport, o: RenderOptions): string {
 	if (!r.listeners.length && !r.outbound.length)
 		return `nothing listens on port ${r.port}, and nothing here talks to it`;
 	for (const l of r.listeners) {
-		out.push(`${c.bold(`${l.proto} ${l.port}`)}  ${ownerLabel(l)}`);
+		out.push(`${c.bold(`${l.proto} ${l.port}`)}  ${ownerLabel(l, o)}`);
 		const kv: [string, string][] = [];
 		if (l.process)
 			kv.push([
 				"process",
-				`${l.process.cmd}  ${c.dim(`(pid ${l.process.pid}, ${l.user})`)}`,
+				`${l.process.cmd}  ${c.dim(`(pid ${l.process.pid}${l.user ? `, ${l.user}` : ""})`)}`,
 			]);
 		else if (!l.container)
 			kv.push([
 				"process",
-				c.yellow(`owned by ${l.user}: run with sudo to see which process`),
+				c.yellow(
+					`owned by ${l.user ?? "another user"}: ${elevate(o)} to see which process`,
+				),
 			]);
 		if (l.container) {
 			const ct = l.container;
@@ -345,7 +361,7 @@ export function renderWho(r: WhoReport, o: RenderOptions): string {
 		if (l.clients.length) {
 			kv.push(["clients", `${l.clients.length}`]);
 			for (const x of l.clients)
-				kv.push(["", `← ${peerLabel(x.peer, endpoint(x.remote))}`]);
+				kv.push(["", `← ${peerLabel(x.peer, endpoint(x.remote), o)}`]);
 		} else kv.push(["clients", c.dim("none right now")]);
 		for (const [k, v] of kv) out.push(`  ${c.dim(k.padEnd(10))} ${v}`);
 		out.push("");
@@ -356,7 +372,9 @@ export function renderWho(r: WhoReport, o: RenderOptions): string {
 			const who = connOwner(x);
 			const where =
 				x.peer.kind === "remote" ? `  ${c.dim(routeVia(x.peer.route))}` : "";
-			out.push(`  ${who} → ${peerLabel(x.peer, endpoint(x.remote))}${where}`);
+			out.push(
+				`  ${who} → ${peerLabel(x.peer, endpoint(x.remote), o)}${where}`,
+			);
 		}
 	}
 	return out.join("\n").trimEnd();
@@ -407,7 +425,7 @@ export function renderMap(m: MapReport, o: RenderOptions): string {
 	);
 	out.push("");
 	const listenLine = (l: Listener) =>
-		`${c.bold(`${l.proto} ${l.port}`.padEnd(9))} ${ownerLabel(l)}${l.clients.length ? c.cyan(`  ← ${l.clients.length} client${l.clients.length > 1 ? "s" : ""}`) : ""}`;
+		`${c.bold(`${l.proto} ${l.port}`.padEnd(9))} ${ownerLabel(l, o)}${l.clients.length ? c.cyan(`  ← ${l.clients.length} client${l.clients.length > 1 ? "s" : ""}`) : ""}`;
 	if (m.everywhere.length) {
 		out.push(`${c.yellow("listening on every interface")}`);
 		for (const l of m.everywhere) out.push(`  ${listenLine(l)}`);
@@ -448,7 +466,7 @@ export function renderMap(m: MapReport, o: RenderOptions): string {
 	if (m.hidden)
 		out.push(
 			c.dim(
-				`${m.hidden} processes of other users hidden: run with sudo to see their sockets`,
+				`${m.hidden} processes of other users hidden: ${elevate(o)} to see their sockets`,
 			),
 		);
 	return out.join("\n").trimEnd();
@@ -477,7 +495,7 @@ function grouped(
 		const who = connOwner(x);
 		const to =
 			label === "local"
-				? peerLabel(x.peer, `:${x.remote.port}`)
+				? peerLabel(x.peer, `:${x.remote.port}`, o)
 				: endpoint(x.remote);
 		const m = by.get(who) ?? new Map<string, number>();
 		m.set(to, (m.get(to) ?? 0) + 1);

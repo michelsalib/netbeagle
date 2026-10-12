@@ -131,7 +131,9 @@ export function overview(): string {
 		...optionLines(["json", "no-docker", "show-secrets", "version"]),
 		"",
 		"netbeagle COMMAND --help shows one command's usage, options and examples.",
-		"Without root, sockets of other users' processes show only their user: sudo shows them all.",
+		process.platform === "win32"
+			? "Without an administrator terminal, other users' command lines are hidden."
+			: "Without root, sockets of other users' processes show no process: sudo shows them all.",
 		"",
 		"From the same pack: envhound, which startup file sets each environment variable.",
 		"  npx envhound",

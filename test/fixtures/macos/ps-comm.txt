@@ -1,0 +1,8 @@
+    1     0 root             /sbin/launchd
+  312     0 root             /usr/sbin/sshd
+  420    65 _mdnsresponder   /usr/sbin/mDNSResponder
+ 2000   216 _postgres        /opt/homebrew/opt/postgresql@18/bin/postgres
+ 3000   501 me               node
+ 3100   501 me               /usr/bin/python3
+ 3200   501 me               /Applications/My App.app/Contents/MacOS/My App
+ 4000   501 me               curl

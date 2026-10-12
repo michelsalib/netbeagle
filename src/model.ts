@@ -76,10 +76,17 @@ export interface Socket {
 	local: Endpoint;
 	remote: Endpoint;
 	state: SocketState;
-	uid: number;
-	inode: number;
+	/** The owner's uid; unknown on Windows, and on macOS for other users' sockets without root. */
+	uid?: number;
+	/** Linux only: the socket's inode, which ties it to the process holding it. */
+	inode?: number;
 	/** Unknown when the process belongs to another user and netbeagle runs without root. */
 	pid?: number;
+	/** No process holds it any more (TIME_WAIT): the kernel finishes closing it. */
+	orphan?: boolean;
+	/** Bound to :: and taking IPv6 only. Linux's default is both (net.ipv6.bindv6only is 0), so is
+	 * macOS's, where netstat says tcp46 or tcp6; Windows' is IPv6 only. */
+	v6only?: boolean;
 }
 
 export interface Process {
@@ -87,7 +94,7 @@ export interface Process {
 	name: string;
 	/** The full command line, arguments joined by spaces. */
 	cmd: string;
-	uid: number;
+	uid?: number;
 }
 
 export interface ContainerNetwork {
@@ -117,7 +124,7 @@ export interface Container {
 export interface Snapshot {
 	hostname: string;
 	/** "wsl" in Windows Subsystem for Linux, where Windows forwards localhost ports into the VM. */
-	environment: "linux" | "wsl";
+	environment: "linux" | "wsl" | "macos" | "windows";
 	interfaces: Iface[];
 	routes: Route[];
 	sockets: Socket[];
@@ -125,10 +132,10 @@ export interface Snapshot {
 	containers: Container[];
 	/** User names by uid. */
 	users: Record<number, string>;
-	/** Name servers from /etc/resolv.conf. */
+	/** Name servers: /etc/resolv.conf, or each interface's on Windows. */
 	dns: string[];
 	/** Our uid: sockets of other users have no process unless we are root. */
-	uid: number;
+	uid?: number;
 	/** Processes whose sockets netbeagle could not read (other users', without root). */
 	hidden: number;
 }

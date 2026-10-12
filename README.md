@@ -10,15 +10,16 @@
   <a href="https://www.npmjs.com/package/netbeagle"><img src="https://img.shields.io/npm/v/netbeagle?color=a8521a" alt="npm version"></a>
   <a href="https://github.com/michelsalib/netbeagle/actions/workflows/ci.yml"><img src="https://github.com/michelsalib/netbeagle/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/node/v/netbeagle" alt="Node version">
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20WSL-blue" alt="Linux and WSL">
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-blue" alt="Linux, macOS and Windows">
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/netbeagle" alt="MIT license"></a>
   <a href="https://scorecard.dev/viewer/?uri=github.com/michelsalib/netbeagle"><img src="https://api.scorecard.dev/projects/github.com/michelsalib/netbeagle/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
 What is on port 5432, a local postgres or the one in docker? Can my laptop's neighbours reach it, or only
 this machine? Which process keeps a connection open to that server, and through which interface and
-gateway does it leave? netbeagle answers those in one command, by reading what the kernel already
-knows (`/proc`, `/sys`) and asking docker which container sits behind each published port.
+gateway does it leave? netbeagle answers those in one command, by reading what the system already
+knows (`/proc` and `/sys` on Linux, `netstat` and `lsof` on macOS, PowerShell on Windows) and asking
+docker which container sits behind each published port.
 
 **Try it, nothing to install:**
 
@@ -68,8 +69,8 @@ dns  127.0.0.53 (local resolver)
 
 ## Install
 
-netbeagle is a single JavaScript file that runs on Node ≥ 20 or Bun, on Linux and WSL. Without either,
-the installer fetches a standalone binary instead (x64 or arm64), which needs nothing.
+netbeagle is a single JavaScript file that runs on Node ≥ 20 or Bun, on Linux (WSL included), macOS and
+Windows. Without either, the installers fetch a standalone binary instead, which needs nothing.
 
 ```sh
 npx netbeagle map               # or: bunx netbeagle map, nothing to install
@@ -85,11 +86,27 @@ less install.sh && sh install.sh
 gh attestation verify install.sh -R michelsalib/netbeagle   # optional: proves GitHub Actions built it
 ```
 
-The binaries are release files too (`netbeagle-linux-x64`, `netbeagle-linux-arm64`), listed in
-`SHA256SUMS` and attested like the rest; see [SECURITY.md](SECURITY.md#verifying-a-release).
+On Windows, in PowerShell:
 
-Without root, netbeagle can't see other users' processes, so their sockets show the user only;
-`sudo netbeagle` shows them all. netbeagle only reads: see [what it does with your machine](SECURITY.md#what-netbeagle-does-with-your-machine).
+```powershell
+irm https://github.com/michelsalib/netbeagle/releases/latest/download/install.ps1 | iex
+```
+
+`install.sh` puts `netbeagle` in `~/.local/bin` (`NETBEAGLE_INSTALL_DIR` to change it, `NETBEAGLE_VERSION=0.1.0`
+to pin a version), checks it against the release's `SHA256SUMS`, and runs it on Node, or on Bun when there
+is no Node ≥ 20. With neither, or with `NETBEAGLE_BINARY=1`, it installs the standalone binary for your
+system (Linux and macOS, x64 and arm64). `install.ps1` does the same on Windows, in
+`%LOCALAPPDATA%\Programs\netbeagle`: `netbeagle.mjs` and a `netbeagle.cmd` launcher, or `netbeagle.exe`.
+Neither edits your `PATH`: they print what to run.
+
+The binaries are release files too (`netbeagle-linux-x64`, `netbeagle-linux-arm64`, `netbeagle-darwin-x64`,
+`netbeagle-darwin-arm64`, `netbeagle-windows-x64.exe`), listed in `SHA256SUMS` and attested like the rest;
+see [SECURITY.md](SECURITY.md#verifying-a-release).
+
+On Linux and macOS, without root, netbeagle can't see other users' processes, so their sockets show no
+process; `sudo netbeagle` shows them all. Windows names every socket's process, but shows other users'
+command lines only in an administrator terminal. netbeagle only reads: see
+[what it does with your machine](SECURITY.md#what-netbeagle-does-with-your-machine).
 
 ## Commands
 
@@ -110,21 +127,36 @@ lines are shown with the values of `--token=`, `--password` and the like masked 
 
 ## How it works
 
-- **Sockets** come from `/proc/net/tcp`, `tcp6`, `udp` and `udp6`; IPv4 clients of a socket bound to `::`
+Each system is read its own way, into the same picture, so every command works the same everywhere.
+
+- **Linux**: sockets from `/proc/net/tcp`, `tcp6`, `udp` and `udp6`; IPv4 clients of a socket bound to `::`
   (`::ffff:1.2.3.4`) are shown as IPv4. Each socket's process is found through the `socket:[inode]` links
   in `/proc/PID/fd`. Without root, other users' processes can't be read: their sockets show the user
-  only, and `sudo netbeagle` shows them all.
-- **Interfaces** come from `/sys/class/net` (kind, state, bridge and its ports, traffic) and their
-  addresses from `getifaddrs`. **Routes** from the kernel's main table, `/proc/net/route` and
-  `/proc/net/ipv6_route`; `route` picks the longest matching prefix, then the lowest metric, as the
-  kernel does (policy routing, `ip rule`, is not replayed).
+  only, and `sudo netbeagle` shows them all. Interfaces from `/sys/class/net` (kind, state, bridge and
+  its ports, traffic) and their addresses from `getifaddrs`; routes from the kernel's main table,
+  `/proc/net/route` and `/proc/net/ipv6_route`.
+- **macOS**: every user's sockets from `netstat -an` (`tcp46` for a socket taking both families), and
+  the process behind each from `lsof`: without root, only your own, so other users' show no process and
+  `sudo netbeagle` shows them all. Interfaces from `ifconfig -a` (bridge members included), their traffic
+  from `netstat -ibn`, which one is Wi-Fi from `networksetup`; routes from `netstat -rn`, without the
+  ARP entries and interface-scoped copies; processes from `ps`.
+- **Windows**: one PowerShell call. Sockets and their processes from `Get-NetTCPConnection` and
+  `Get-NetUDPEndpoint` (`netstat` translates its states into the system's language; these don't),
+  interfaces, addresses, traffic and DNS servers from .NET's `NetworkInterface`, routes from `Get-NetRoute`
+  (their metric plus the interface's, as Windows compares them), command lines from `Win32_Process`.
+  It takes a couple of seconds, PowerShell's start included.
+- `route` picks the longest matching prefix, then the lowest metric, as the system does (policy
+  routing, `ip rule` on Linux, is not replayed).
 - **Containers**: `docker inspect` of the running containers gives their networks (and the host bridge
   each uses, `docker0` or `br-<network id>`) and their published ports. A published port belongs to
   its container, whether `docker-proxy` holds a socket for it or the firewall forwards it with none.
+- **Containers on macOS and Windows**: Docker Desktop runs them in a VM, so their networks are not on this
+  machine; a published port shows its container all the same.
 - **Who reaches what**: a socket on `127.0.0.1`, `::1` or another address of the loopback is reachable
-  from this machine only; on `0.0.0.0` or `::`, from every interface (`::` takes IPv4 too, as
-  `net.ipv6.bindv6only` is 0 by default); on one address, from the interface holding it. Firewall rules
-  are not taken into account.
+  from this machine only; on `0.0.0.0` or `::`, from every interface; on one address, from the interface
+  holding it. A socket on `::` takes IPv4 too by default on Linux (`net.ipv6.bindv6only` is 0) and on
+  macOS (`tcp46`), and IPv6 only on Windows unless its program asks for both: those say
+  `every interface, IPv6 only`. Firewall rules are not taken into account.
 - **WSL**: Windows forwards its own `localhost` to ports bound to `127.0.0.1` or every interface in the
   WSL VM, so those say `+ Windows`.
 - Connections between two processes of this machine are matched end to end, so `curl 400 → :5000 node
@@ -132,9 +164,9 @@ lines are shown with the values of `--token=`, `--password` and the like masked 
 
 ## Status
 
-Linux, including WSL. Planned: macOS (`lsof`, `netstat`), Windows (`Get-NetTCPConnection`),
-`netbeagle doctor` (services exposed on every interface, ports bound twice, DNS servers with no
-route), firewall rules, and network namespaces (inside containers).
+Linux (WSL included), macOS and Windows. Planned: `netbeagle doctor` (services exposed on every
+interface, ports bound twice, DNS servers with no route), firewall rules, network namespaces (inside
+containers), and a Homebrew tap and a Scoop bucket.
 
 ## The pack
 
@@ -151,14 +183,15 @@ nothing to configure.
 ```sh
 bun install
 bun run dev -- map          # run from source
-bun test                    # unit tests on test/fixtures/root, plus the built CLI on node on this machine
+bun test                    # unit tests on the fixtures of each system, plus the built CLI on node on this machine
 bun run typecheck
 bun run lint                # Biome: formatting and lint
 bun run build               # dist/netbeagle.js, plain JS for node >= 20
 ```
 
-`test/fixtures/root` is a small machine as `/proc`, `/sys` and `/etc` show it, written by
-`scripts/fixture.py` (its docstring describes it). Source uses only `node:` APIs, so the build runs on
+`test/fixtures/root` is a small Linux machine as `/proc`, `/sys` and `/etc` show it, written by
+`scripts/fixture.py` (its docstring describes it); `test/fixtures/macos` holds what its commands print
+on a Mac, and `test/fixtures/windows` what netbeagle's PowerShell script prints on Windows. Source uses only `node:` APIs, so the build runs on
 both Node and Bun.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for pull requests and releases.

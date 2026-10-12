@@ -5,7 +5,9 @@ first so we can agree on the approach.
 
 ## Setting up
 
-You need [Bun](https://bun.sh) (the version in `.bun-version`), Node 20 or newer, and Linux or WSL.
+You need [Bun](https://bun.sh) (the version in `.bun-version`) and Node 20 or newer, on Linux, macOS or
+Windows. The tests read the fixtures of every system, wherever they run, and run the built CLI on the
+machine itself.
 
 ```sh
 bun install
@@ -17,12 +19,15 @@ bun run lint                # Biome: formatting and lint; `bunx biome check --wr
 
 `test/fixtures/root` is a small machine as `/proc`, `/sys` and `/etc` show it, written by
 `scripts/fixture.py`: change the script, not the files, and run `python3 scripts/fixture.py`. CI checks
-the two agree.
+the two agree. `test/fixtures/macos` is what each command netbeagle runs prints on a Mac, and
+`test/fixtures/windows/snapshot.json` what its PowerShell script prints on Windows; when a reader
+changes, record the new output on the real system, with your own addresses replaced.
 
 ## Pull requests
 
 - Keep each pull request to one change, with a test that fails without it.
-- CI must pass on x64 and arm64; `main` only accepts pull requests with green checks.
+- CI must pass on Linux (x64 and arm64), macOS and Windows; `main` only accepts pull requests with green
+  checks.
 - Write commit messages that say what changed and why, in plain sentences.
 - User-visible changes go in `CHANGELOG.md`, under "Unreleased".
 

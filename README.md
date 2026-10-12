@@ -28,9 +28,6 @@ npx netbeagle map         # how everything connects
 npx netbeagle who 5432    # what is on 5432
 ```
 
-Not on npm yet: until the first release, run it from the source, `bun install && bun run dev -- map`
-(see [Development](#development)).
-
 ```
 $ netbeagle
 PORT      ADDRESS       REACHABLE FROM     CLIENTS  OWNER

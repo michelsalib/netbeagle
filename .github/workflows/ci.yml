@@ -1,0 +1,70 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# read-only: CI never writes to the repository
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # netbeagle reads Linux's /proc and /sys; arm64 runs its own binary
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+        node: [24]
+        # the oldest Node versions engines allows run the built file too
+        include:
+          - os: ubuntu-latest
+            node: 20
+          - os: ubuntu-latest
+            node: 22
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      # actions are pinned to a commit; Dependabot proposes updates
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      # bun runs the tests and the build; tests also run the built file on node, as users do
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test --coverage --timeout 30000
+      - run: bun run build
+      - run: node dist/netbeagle.js --version
+      - run: node dist/netbeagle.js map
+      # the release files must be reproducible from the source: the same build twice
+      - name: Build is deterministic
+        run: cp dist/netbeagle.js /tmp/first.js && bun run build && cmp /tmp/first.js dist/netbeagle.js
+      # the fixture is generated: it must match its script
+      - name: Fixture is up to date
+        run: python3 scripts/fixture.py && git diff --exit-code test/fixtures
+      # the release cross-compiles both on x64; each architecture runs its own, and prints every hash:
+      # the same on both runners means the cross-compiled one is the native one
+      - name: Standalone binaries
+        if: matrix.node == 24
+        run: |
+          bun run build:bin
+          (cd dist/bin && sha256sum *)
+          case "$RUNNER_ARCH" in
+            X64) bin=netbeagle-linux-x64 ;;
+            ARM64) bin=netbeagle-linux-arm64 ;;
+          esac
+          dist/bin/$bin --version
+          dist/bin/$bin map > /dev/null
+      - run: shellcheck install.sh

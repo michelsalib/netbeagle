@@ -1,0 +1,30 @@
+name: Bug report
+description: netbeagle shows something wrong, or a command fails
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The command you ran, what it printed, and what you expected instead (what `ss -tulpn`, `ip addr` or `docker ps` show, if they disagree). Mask any secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest setup that shows it, such as the listener, the container or the interface involved.
+  - type: input
+    id: version
+    attributes:
+      label: netbeagle version
+      description: The output of `netbeagle --version`
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: Distribution (or WSL), whether you ran it with sudo, docker or podman if any, and how you installed netbeagle (npm, install.sh, npx…)
+    validations:
+      required: true

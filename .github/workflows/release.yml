@@ -1,0 +1,116 @@
+# Push a tag vX.Y.Z (after a PR that bumps package.json) to publish: npm (for npx/bunx/npm -g),
+# then a GitHub release for install.sh, with the standalone binaries.
+#
+# Three jobs, so untrusted work never holds a write token: tests, then a read-only build, then a
+# publish job that waits for approval in the `release` environment, attests the exact files it
+# publishes, and publishes them to npm (trusted publishing, no token) and GitHub.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun test --timeout 30000
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Tag matches package.json
+        run: test "${GITHUB_REF_NAME#v}" = "$(node -p 'require("./package.json").version')"
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      # cross-compiled here for both architectures; CI checks each one runs on its own
+      - run: bun run build:bin
+      - run: shellcheck install.sh
+      - name: Release files
+        run: |
+          mkdir release
+          cp dist/netbeagle.js dist/bin/* install.sh release/
+          (cd release && sha256sum * > SHA256SUMS)
+          cat release/SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: release/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # waits for a maintainer's approval
+    environment: release
+    permissions:
+      contents: write # the GitHub release
+      id-token: write # npm trusted publishing and provenance, and the attestations
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+          path: release
+      - name: Check the files against SHA256SUMS
+        run: cd release && sha256sum --check SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        id: attest
+        with:
+          subject-path: release/*
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # npm gets the very file attested above; no scripts run here, so nothing rebuilds it.
+      # Trusted publishing (OIDC) once configured on npmjs.com, which needs the package to exist;
+      # NPM_TOKEN, a release-environment secret, for the first release until then
+      - name: npm publish
+        run: |
+          mkdir -p dist && cp release/netbeagle.js dist/
+          npm publish --provenance --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # the provenance attested above, as a release file too: tools that look at the release itself
+      # (OpenSSF Scorecard, slsa-verifier) find it there; gh attestation verify needs nothing more
+      - run: |
+          cp "$BUNDLE" netbeagle.intoto.jsonl
+          gh release create "$GITHUB_REF_NAME" release/* netbeagle.intoto.jsonl --verify-tag --generate-notes --title "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}

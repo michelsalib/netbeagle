@@ -1,0 +1,565 @@
+import type {
+	Connection,
+	IfaceView,
+	Listener,
+	MapReport,
+	Peer,
+	RouteResult,
+	WhoReport,
+} from "./analyze.ts";
+import type { Container, Iface, Process, Route } from "./model.ts";
+import { endpoint, isWildcard } from "./net.ts";
+
+export interface RenderOptions {
+	color: boolean;
+	/** Terminal width; undefined means never truncate (output is piped). */
+	width?: number;
+	/** In WSL, Windows forwards its localhost to ports bound to 127.0.0.1 or every interface. */
+	wsl?: boolean;
+}
+
+export function paint(o: RenderOptions) {
+	const wrap = (code: string) => (s: string) =>
+		o.color && s ? `\x1b[${code}m${s}\x1b[0m` : s;
+	return {
+		bold: wrap("1"),
+		dim: wrap("2"),
+		red: wrap("31"),
+		green: wrap("32"),
+		yellow: wrap("33"),
+		blue: wrap("34"),
+		magenta: wrap("35"),
+		cyan: wrap("36"),
+	};
+}
+
+function fit(s: string, width: number | undefined): string {
+	return width !== undefined && width > 0 && s.length > width
+		? `${s.slice(0, Math.max(0, width - 1))}…`
+		: s;
+}
+
+/** Columns padded to their widest cell; the last one cut to the terminal. */
+function table(
+	rows: string[][],
+	styles: ((s: string) => string)[],
+	width: number | undefined,
+): string {
+	const widths =
+		rows[0]?.map((_, i) => Math.max(...rows.map((r) => (r[i] ?? "").length))) ??
+		[];
+	return rows
+		.map((cells) => {
+			let used = 0;
+			return cells
+				.map((cell, i) => {
+					const last = i === cells.length - 1;
+					const text = last
+						? fit(
+								cell,
+								width === undefined ? undefined : Math.max(10, width - used),
+							)
+						: cell.padEnd(widths[i] ?? 0);
+					used += (widths[i] ?? 0) + 2;
+					return (styles[i] ?? ((s: string) => s))(text);
+				})
+				.join("  ")
+				.trimEnd();
+		})
+		.join("\n");
+}
+
+export const procLabel = (p: Process) => `${p.name} ${p.pid}`;
+
+/** Our side of a connection: its process, else its user, else nobody (closing). */
+const connOwner = (x: Connection) =>
+	x.process
+		? procLabel(x.process)
+		: x.user
+			? `${x.user}'s process`
+			: "closing, no process";
+
+/** Who is behind a listener: its container, its process, or at least its user. */
+export function ownerLabel(l: Listener): string {
+	if (l.container)
+		return `container ${l.container.name}${l.published ? ` :${l.published.containerPort}` : ""}`;
+	if (l.process) return procLabel(l.process);
+	return `${l.user}'s process (sudo to see it)`;
+}
+
+export function reachLabel(l: Listener, o: RenderOptions): string {
+	const windows =
+		o.wsl && l.addresses.some((a) => isWildcard(a) || a.startsWith("127."));
+	const base =
+		l.reach.scope === "local"
+			? "this machine only"
+			: l.reach.scope === "everywhere"
+				? "every interface"
+				: l.reach.interfaces.join(", ") || "no interface";
+	return windows ? `${base} + Windows` : base;
+}
+
+const addressLabel = (l: Listener) => {
+	const a = l.addresses;
+	if (a.length === 2 && a.includes("0.0.0.0") && a.includes("::")) return "*";
+	return a.join(", ");
+};
+
+export function peerLabel(p: Peer, remote: string): string {
+	switch (p.kind) {
+		case "local": {
+			const who = p.listener
+				? ownerLabel(p.listener)
+				: p.process
+					? procLabel(p.process)
+					: (p.user && `${p.user}'s process`) || "this machine";
+			return `${remote} ${who}`;
+		}
+		case "container":
+			return `${remote} container ${p.container.name}`;
+		case "remote":
+			return remote;
+	}
+}
+
+const routeVia = (r: RouteResult) =>
+	r.kind === "unreachable"
+		? "no route"
+		: r.gateway
+			? `via ${r.iface} → ${r.gateway}`
+			: `via ${r.iface}`;
+
+export function renderList(ls: Listener[], o: RenderOptions): string {
+	const c = paint(o);
+	if (!ls.length) return c.dim("nothing is listening");
+	const rows = [
+		["PORT", "ADDRESS", "REACHABLE FROM", "CLIENTS", "OWNER"],
+		...ls.map((l) => [
+			`${l.proto} ${l.port}`,
+			addressLabel(l),
+			reachLabel(l, o),
+			l.clients.length ? String(l.clients.length) : "",
+			ownerLabel(l),
+		]),
+	];
+	const reach = (s: string) =>
+		s.startsWith("this machine")
+			? c.green(s)
+			: s.startsWith("every")
+				? c.yellow(s)
+				: s;
+	const styles = [c.bold, (s: string) => s, reach, c.cyan, (s: string) => s];
+	const [head = ""] = table(
+		rows,
+		styles.map(() => (s: string) => s),
+		o.width,
+	).split("\n");
+	const styled = table(rows, styles, o.width).split("\n").slice(1);
+	return [c.dim(head), ...styled].join("\n");
+}
+
+const bytes = (n: number) => {
+	const units = ["B", "kB", "MB", "GB", "TB"];
+	let i = 0;
+	let v = n;
+	while (v >= 1000 && i < units.length - 1) {
+		v /= 1000;
+		i++;
+	}
+	return `${i ? v.toFixed(1) : v} ${units[i]}`;
+};
+
+const cidr = (i: Iface) => i.addresses.map((a) => `${a.address}/${a.prefix}`);
+
+function ifaceHeader(i: Iface, o: RenderOptions, note = ""): string {
+	const c = paint(o);
+	const state =
+		i.state === "up"
+			? c.green("up")
+			: i.state === "down"
+				? c.red("down")
+				: c.dim(i.state);
+	return [c.bold(i.name), i.kind, state, cidr(i).join(" "), note && c.dim(note)]
+		.filter(Boolean)
+		.join("  ");
+}
+
+/** A bridge docker uses: "docker network NAME". */
+const dockerNetwork = (v: IfaceView) => {
+	const names = [
+		...new Set(
+			v.containers.flatMap((x) =>
+				x.container.networks
+					.filter((n) => n.bridge === v.iface.name)
+					.map((n) => n.name),
+			),
+		),
+	];
+	return names.length ? `docker network ${names.join(", ")}` : "";
+};
+
+/** Routes worth showing: every interface with IPv6 has fe80::/64, which says nothing. */
+const shownRoutes = (rs: Route[]) =>
+	rs.filter((r) => !(r.family === 6 && r.dest === "fe80::"));
+
+const routeLabel = (r: Route) =>
+	(r.prefix === 0 ? "default" : `${r.dest}/${r.prefix}`) +
+	(r.gateway ? ` via ${r.gateway}` : "");
+
+export function renderInterfaces(
+	views: IfaceView[],
+	idle: string[],
+	o: RenderOptions,
+): string {
+	const c = paint(o);
+	const out: string[] = [];
+	for (const v of views) {
+		const i = v.iface;
+		out.push(ifaceHeader(i, o, dockerNetwork(v)));
+		const lines: [string, string][] = [];
+		if (shownRoutes(v.routes).length)
+			lines.push(["routes", shownRoutes(v.routes).map(routeLabel).join(", ")]);
+		if (i.members.length) {
+			const veth = i.members.filter((m) => m.startsWith("veth")).length;
+			lines.push([
+				"ports",
+				veth === i.members.length ? `${veth} veth` : i.members.join(", "),
+			]);
+		}
+		if (v.containers.length)
+			lines.push([
+				"containers",
+				v.containers
+					.map((x) => `${x.container.name}${x.ip ? ` ${x.ip}` : ""}`)
+					.join(", "),
+			]);
+		const ls = v.listeners.length;
+		if (ls)
+			lines.push(["listening", `${ls} port${ls > 1 ? "s" : ""} bound here`]);
+		if (v.outbound.length)
+			lines.push([
+				"out",
+				`${v.outbound.length} connection${v.outbound.length > 1 ? "s" : ""}`,
+			]);
+		const meta = [
+			i.mac,
+			i.mtu ? `mtu ${i.mtu}` : "",
+			`↓ ${bytes(i.rxBytes)}  ↑ ${bytes(i.txBytes)}`,
+		].filter(Boolean);
+		lines.push(["", meta.join("  ")]);
+		for (const [k, val] of lines)
+			out.push(`  ${c.dim(k.padEnd(10))} ${fit(val, o.width && o.width - 13)}`);
+		out.push("");
+	}
+	if (idle.length) out.push(c.dim(`down, no address: ${idle.join(", ")}`));
+	return out.join("\n").trimEnd();
+}
+
+/** Connections grouped by the process on our side. */
+export function renderConnections(
+	conns: Connection[],
+	o: RenderOptions,
+): string {
+	const c = paint(o);
+	if (!conns.length) return c.dim("no connections");
+	const groups = new Map<string, Connection[]>();
+	for (const x of conns) {
+		const k = connOwner(x);
+		groups.set(k, [...(groups.get(k) ?? []), x]);
+	}
+	const out: string[] = [];
+	for (const [who, list] of [...groups].sort(
+		(a, b) => b[1].length - a[1].length,
+	)) {
+		out.push(
+			`${c.bold(who)}  ${c.dim(`${list.length} connection${list.length > 1 ? "s" : ""}`)}`,
+		);
+		// identical lines (several sockets to one server) once, with a count
+		const lines = new Map<string, number>();
+		for (const x of list) {
+			const arrow = x.direction === "in" ? c.magenta("←") : c.cyan("→");
+			const mine = x.direction === "in" ? `:${x.local.port} ` : "";
+			const where =
+				x.peer.kind === "remote" ? c.dim(routeVia(x.peer.route)) : "";
+			const state = x.state === "ESTABLISHED" ? "" : c.yellow(x.state);
+			const line = [
+				`  ${mine}${arrow} ${peerLabel(x.peer, endpoint(x.remote))}`,
+				where,
+				state,
+			]
+				.filter(Boolean)
+				.join("  ");
+			lines.set(line, (lines.get(line) ?? 0) + 1);
+		}
+		for (const [line, n] of lines)
+			out.push(n > 1 ? `${line}  ${c.dim(`×${n}`)}` : line);
+	}
+	return out.join("\n");
+}
+
+export function renderWho(r: WhoReport, o: RenderOptions): string {
+	const c = paint(o);
+	const out: string[] = [];
+	if (!r.listeners.length && !r.outbound.length)
+		return `nothing listens on port ${r.port}, and nothing here talks to it`;
+	for (const l of r.listeners) {
+		out.push(`${c.bold(`${l.proto} ${l.port}`)}  ${ownerLabel(l)}`);
+		const kv: [string, string][] = [];
+		if (l.process)
+			kv.push([
+				"process",
+				`${l.process.cmd}  ${c.dim(`(pid ${l.process.pid}, ${l.user})`)}`,
+			]);
+		else if (!l.container)
+			kv.push([
+				"process",
+				c.yellow(`owned by ${l.user}: run with sudo to see which process`),
+			]);
+		if (l.container) {
+			const ct = l.container;
+			kv.push([
+				"container",
+				`${ct.name}  ${c.dim(ct.image)}${ct.project ? c.dim(`  compose project ${ct.project}`) : ""}`,
+			]);
+			for (const n of ct.networks)
+				kv.push([
+					"",
+					`→ ${n.ip ?? "?"}:${l.published?.containerPort ?? l.port} on ${n.name}${n.bridge ? c.dim(` (${n.bridge})`) : ""}`,
+				]);
+		}
+		kv.push(["bound to", l.addresses.join(", ")]);
+		kv.push([
+			"reachable",
+			reachLabel(l, o) +
+				(l.reach.scope === "everywhere"
+					? c.dim(`: ${l.reach.interfaces.join(", ")}`)
+					: ""),
+		]);
+		if (l.reach.scope === "everywhere")
+			kv.push([
+				"",
+				c.yellow(
+					"any machine that can reach one of those interfaces can connect",
+				),
+			]);
+		if (l.clients.length) {
+			kv.push(["clients", `${l.clients.length}`]);
+			for (const x of l.clients)
+				kv.push(["", `← ${peerLabel(x.peer, endpoint(x.remote))}`]);
+		} else kv.push(["clients", c.dim("none right now")]);
+		for (const [k, v] of kv) out.push(`  ${c.dim(k.padEnd(10))} ${v}`);
+		out.push("");
+	}
+	if (r.outbound.length) {
+		out.push(c.bold(`connections to port ${r.port} elsewhere`));
+		for (const x of r.outbound) {
+			const who = connOwner(x);
+			const where =
+				x.peer.kind === "remote" ? `  ${c.dim(routeVia(x.peer.route))}` : "";
+			out.push(`  ${who} → ${peerLabel(x.peer, endpoint(x.remote))}${where}`);
+		}
+	}
+	return out.join("\n").trimEnd();
+}
+
+export function renderRoute(
+	r: RouteResult,
+	host: string,
+	o: RenderOptions,
+): string {
+	const c = paint(o);
+	const name = host === r.dest ? r.dest : `${host} (${r.dest})`;
+	const kv: [string, string][] = [];
+	switch (r.kind) {
+		case "loopback":
+			return `${c.bold(name)} is this machine, through the loopback ${c.dim("(lo)")}`;
+		case "local":
+			return `${c.bold(name)} is this machine: an address of ${r.iface}, delivered through the loopback`;
+		case "unreachable":
+			return `${c.bold(name)}: ${c.red("no route")}: packets to it are dropped`;
+		case "container":
+			kv.push(["is", `container ${r.container?.name}, on this machine`]);
+			break;
+		case "network":
+			kv.push(["is", `on the network of ${r.iface}, reached directly`]);
+			break;
+		case "gateway":
+			kv.push(["is", `beyond ${r.gateway}, the gateway on ${r.iface}`]);
+	}
+	kv.push(["interface", r.iface ?? ""]);
+	if (r.route)
+		kv.push([
+			"route",
+			`${routeLabel(r.route)}${r.route.metric ? ` metric ${r.route.metric}` : ""}`,
+		]);
+	if (r.source) kv.push(["from", r.source]);
+	return [
+		c.bold(name),
+		...kv.map(([k, v]) => `  ${c.dim(k.padEnd(10))} ${v}`),
+	].join("\n");
+}
+
+export function renderMap(m: MapReport, o: RenderOptions): string {
+	const c = paint(o);
+	const out: string[] = [];
+	out.push(
+		`${c.bold(m.hostname)}${m.environment === "wsl" ? c.dim("  (WSL: Windows reaches ports on 127.0.0.1 and every interface through its localhost)") : ""}`,
+	);
+	out.push("");
+	const listenLine = (l: Listener) =>
+		`${c.bold(`${l.proto} ${l.port}`.padEnd(9))} ${ownerLabel(l)}${l.clients.length ? c.cyan(`  ← ${l.clients.length} client${l.clients.length > 1 ? "s" : ""}`) : ""}`;
+	if (m.everywhere.length) {
+		out.push(`${c.yellow("listening on every interface")}`);
+		for (const l of m.everywhere) out.push(`  ${listenLine(l)}`);
+		out.push("");
+	}
+	for (const v of m.interfaces) {
+		const i = v.iface;
+		const net = dockerNetwork(v);
+		out.push(ifaceHeader(i, o, net));
+		if (shownRoutes(v.routes).length)
+			out.push(
+				`  ${c.dim("routes")}  ${shownRoutes(v.routes).map(routeLabel).join(", ")}`,
+			);
+		for (const l of v.listeners)
+			out.push(`  ${c.green("listen")}  ${listenLine(l)}`);
+		for (const x of v.containers)
+			out.push(
+				`  ${c.blue("holds")}   ${x.container.name}${x.ip ? ` ${x.ip}` : ""}${portsOf(x.container)}`,
+			);
+		if (i.members.length)
+			out.push(
+				c
+					.dim(
+						`  ${i.members.length} port${i.members.length > 1 ? "s" : ""}: ${i.members.join(" ")}`,
+					)
+					.slice(0, o.width ?? Infinity),
+			);
+		out.push(...grouped(v.outbound, "out", o));
+		out.push(...grouped(v.local, "local", o));
+		out.push("");
+	}
+	if (m.idle.length) out.push(c.dim(`down, no address: ${m.idle.join(", ")}`));
+	if (m.dns.length) {
+		out.push(
+			`${c.dim("dns")}  ${m.dns.map((d) => `${d.server} ${c.dim(d.route.kind === "loopback" || d.route.kind === "local" ? "(local resolver)" : routeVia(d.route))}`).join(", ")}`,
+		);
+	}
+	if (m.hidden)
+		out.push(
+			c.dim(
+				`${m.hidden} processes of other users hidden: run with sudo to see their sockets`,
+			),
+		);
+	return out.join("\n").trimEnd();
+}
+
+function portsOf(ct: Container): string {
+	const p = ct.ports.filter(
+		(x, i, a) =>
+			a.findIndex((y) => y.hostPort === x.hostPort && y.proto === x.proto) ===
+			i,
+	);
+	return p.length
+		? `  ← host ${p.map((x) => `:${x.hostPort}${x.hostPort !== x.containerPort ? `→${x.containerPort}` : ""}`).join(" ")}`
+		: "";
+}
+
+/** Connections per process, remote ends listed once each, for the map. */
+function grouped(
+	conns: Connection[],
+	label: "out" | "local",
+	o: RenderOptions,
+): string[] {
+	const c = paint(o);
+	const by = new Map<string, Map<string, number>>();
+	for (const x of conns) {
+		const who = connOwner(x);
+		const to =
+			label === "local"
+				? peerLabel(x.peer, `:${x.remote.port}`)
+				: endpoint(x.remote);
+		const m = by.get(who) ?? new Map<string, number>();
+		m.set(to, (m.get(to) ?? 0) + 1);
+		by.set(who, m);
+	}
+	const tag = label === "out" ? c.cyan("out") : c.magenta("local");
+	return [...by].map(([who, tos]) => {
+		const list = [...tos]
+			.map(([to, n]) => (n > 1 ? `${to} ×${n}` : to))
+			.join(", ");
+		return `  ${tag}${label === "out" ? "     " : "   "}${fit(`${who} → ${list}`, o.width && o.width - 10)}`;
+	});
+}
+
+// --json: plain data, without the links between listeners and connections (they form cycles)
+
+const procJson = (p?: Process) => p && { pid: p.pid, name: p.name, cmd: p.cmd };
+const containerJson = (ct?: Container) =>
+	ct && { id: ct.id, name: ct.name, image: ct.image, project: ct.project };
+
+export function peerJson(p: Peer) {
+	switch (p.kind) {
+		case "local":
+			return {
+				kind: p.kind,
+				process: procJson(p.process),
+				user: p.user,
+				listener: p.listener && {
+					proto: p.listener.proto,
+					port: p.listener.port,
+					container: p.listener.container?.name,
+				},
+			};
+		case "container":
+			return {
+				kind: p.kind,
+				container: containerJson(p.container),
+				network: p.network,
+			};
+		case "remote":
+			return { kind: p.kind, route: routeJson(p.route) };
+	}
+}
+
+export const routeJson = (r: RouteResult) => ({
+	...r,
+	container: containerJson(r.container),
+});
+
+export const connectionJson = (x: Connection) => ({
+	...x,
+	process: procJson(x.process),
+	peer: peerJson(x.peer),
+});
+
+export const listenerJson = (l: Listener) => ({
+	proto: l.proto,
+	port: l.port,
+	addresses: l.addresses,
+	reach: l.reach,
+	process: procJson(l.process),
+	user: l.user,
+	container: containerJson(l.container),
+	published: l.published,
+	clients: l.clients.map(connectionJson),
+});
+
+export const ifaceViewJson = (v: IfaceView) => ({
+	...v.iface,
+	routes: v.routes,
+	listeners: v.listeners.map((l) => ({ proto: l.proto, port: l.port })),
+	outbound: v.outbound.map(connectionJson),
+	local: v.local.map(connectionJson),
+	containers: v.containers.map((x) => ({
+		...containerJson(x.container),
+		ip: x.ip,
+	})),
+});
+
+export const mapJson = (m: MapReport) => ({
+	...m,
+	everywhere: m.everywhere.map(listenerJson),
+	interfaces: m.interfaces.map(ifaceViewJson),
+	dns: m.dns.map((d) => ({ server: d.server, route: routeJson(d.route) })),
+});

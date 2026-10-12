@@ -1,0 +1,48 @@
+{
+	"name": "netbeagle",
+	"version": "0.1.0",
+	"description": "See which process listens on each port, which interfaces reach it, and how everything on your machine connects",
+	"keywords": [
+		"network",
+		"ports",
+		"netstat",
+		"ss",
+		"lsof",
+		"interfaces",
+		"docker",
+		"routes"
+	],
+	"license": "MIT",
+	"author": "Michel Salib",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/michelsalib/netbeagle.git"
+	},
+	"homepage": "https://github.com/michelsalib/netbeagle#readme",
+	"bugs": "https://github.com/michelsalib/netbeagle/issues",
+	"type": "module",
+	"bin": {
+		"netbeagle": "dist/netbeagle.js"
+	},
+	"files": [
+		"dist/netbeagle.js"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"dev": "bun src/cli.ts",
+		"build": "bun build src/cli.ts --target=node --minify --outfile dist/netbeagle.js",
+		"build:bin": "bun scripts/build-binaries.ts",
+		"test": "bun test --timeout 30000",
+		"typecheck": "tsc",
+		"lint": "biome check",
+		"prepublishOnly": "bun run typecheck && bun run lint && bun run build && bun test --timeout 30000"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@types/bun": "^1.4.2",
+		"@types/node": "^26.6.4",
+		"typescript": "^7.0.2"
+	}
+}

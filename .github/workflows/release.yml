@@ -97,15 +97,11 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      # npm gets the very file attested above; no scripts run here, so nothing rebuilds it.
-      # Trusted publishing (OIDC) once configured on npmjs.com, which needs the package to exist;
-      # NPM_TOKEN, a release-environment secret, for the first release until then
+      # npm gets the very file attested above; no scripts run here, so nothing rebuilds it
       - name: npm publish
         run: |
           mkdir -p dist && cp release/netbeagle.js dist/
           npm publish --provenance --access public --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       # the provenance attested above, as a release file too: tools that look at the release itself
       # (OpenSSF Scorecard, slsa-verifier) find it there; gh attestation verify needs nothing more
       - run: |

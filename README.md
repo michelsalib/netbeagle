@@ -92,6 +92,14 @@ On Windows, in PowerShell:
 irm https://github.com/michelsalib/netbeagle/releases/latest/download/install.ps1 | iex
 ```
 
+With a package manager, which installs the standalone binary:
+
+```sh
+brew install michelsalib/netbeagle/netbeagle                    # Homebrew, macOS and Linux
+scoop bucket add netbeagle https://github.com/michelsalib/scoop-netbeagle
+scoop install netbeagle/netbeagle                               # Scoop, Windows
+```
+
 `install.sh` puts `netbeagle` in `~/.local/bin` (`NETBEAGLE_INSTALL_DIR` to change it, `NETBEAGLE_VERSION=0.2.0`
 to pin a version), checks it against the release's `SHA256SUMS`, and runs it on Node, or on Bun when there
 is no Node ≥ 20. With neither, or with `NETBEAGLE_BINARY=1`, it installs the standalone binary for your
@@ -166,7 +174,7 @@ Each system is read its own way, into the same picture, so every command works t
 
 Linux (WSL included), macOS and Windows. Planned: `netbeagle doctor` (services exposed on every
 interface, ports bound twice, DNS servers with no route), firewall rules, network namespaces (inside
-containers), and a Homebrew tap and a Scoop bucket.
+containers).
 
 ## The pack
 

@@ -2,6 +2,15 @@
 
 All notable changes to netbeagle. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- Homebrew (macOS and Linux) and Scoop (Windows):
+  `brew install michelsalib/netbeagle/netbeagle`, or
+  `scoop bucket add netbeagle https://github.com/michelsalib/scoop-netbeagle` then
+  `scoop install netbeagle/netbeagle`. Each release updates them.
+
 ## 0.2.0 (2026-10-12)
 
 ### Added

@@ -91,13 +91,15 @@ def iface(name, index, typ, operstate, mac, mtu, devtype=None, device=False, mas
                  ("statistics/rx_bytes", 1500000), ("statistics/tx_bytes", 2000)]:
         w(d + f, "%s\n" % v)
     w(d + "uevent", "INTERFACE=%s\nIFINDEX=%d\n" % (name, index) + ("DEVTYPE=%s\n" % devtype if devtype else ""))
+    # a file in each directory the code looks for: git doesn't keep empty ones
     if device:
-        os.makedirs(os.path.join(root, d, "device"))
+        w(d + "device/uevent", "DRIVER=virtio_net\n")
     if master:
         os.symlink("../" + master, os.path.join(root, d, "master"))
     if devtype == "bridge":
-        os.makedirs(os.path.join(root, d, "bridge"))
-        os.makedirs(os.path.join(root, d, "brif"))
+        w(d + "bridge/bridge_id", "8000.%s\n" % mac.replace(":", "")[:12])
+        # a bridge with no ports has an empty brif, which git doesn't keep: a missing one reads the same
+        os.makedirs(os.path.join(root, d, "brif"), exist_ok=True)
         for p in brif:
             os.symlink("../../" + p + "/brport", os.path.join(root, d, "brif", p))
 

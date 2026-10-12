@@ -15,13 +15,20 @@ Only the latest release gets security fixes.
 
 These are worth knowing when you judge what counts as a vulnerability:
 
-- **It only reads.** netbeagle reads `/proc` (sockets, and each process's open files and command
-  line), `/sys/class/net` and `/etc/resolv.conf`. It changes nothing: no file is written, no
-  interface, route or firewall rule is touched.
+- **It only reads.** It changes nothing: no file is written, no interface, route or firewall rule is
+  touched. What it reads:
+  - on Linux, `/proc` (sockets, and each process's open files and command line), `/sys/class/net` and
+    `/etc/resolv.conf`;
+  - on macOS, what `netstat`, `lsof`, `ifconfig`, `networksetup`, `ps` and `/etc/resolv.conf` print;
+  - on Windows, what one PowerShell script prints, from `Get-NetTCPConnection`, `Get-NetUDPEndpoint`,
+    `Get-NetRoute`, `Win32_Process` and .NET's `NetworkInterface`. The script is part of netbeagle
+    (`src/windows/collect.ts`) and is passed to `powershell.exe` with `-EncodedCommand`, not read from
+    a file.
 - **It runs `docker`**: `docker ps -q` and `docker inspect` of the running containers, to know which
   container sits behind each published port. `--no-docker` turns that off.
-- **Root is optional.** Without it, other users' processes can't be read, and their sockets show only
-  the user. Under `sudo` it sees them all, and still only reads.
+- **Root (or an administrator terminal) is optional.** Without it, on Linux and macOS other users'
+  sockets show no process, and on Windows other users' command lines are hidden. Elevated, it sees them
+  all, and still only reads.
 - **Secret values are masked** in command lines (the values of `--token=`, `--password` and the like)
   in every output, `--json` included, unless you pass `--show-secrets`.
 - **Network:** none, except `netbeagle route HOST` with a host name, which asks your DNS resolver for its

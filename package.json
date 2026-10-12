@@ -10,7 +10,10 @@
 		"lsof",
 		"interfaces",
 		"docker",
-		"routes"
+		"routes",
+		"linux",
+		"macos",
+		"windows"
 	],
 	"license": "MIT",
 	"author": "Michel Salib",

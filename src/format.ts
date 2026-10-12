@@ -71,6 +71,10 @@ function table(
 
 export const procLabel = (p: Process) => `${p.name} ${p.pid}`;
 
+/** How to see other users' processes: sudo, or on Windows an administrator terminal. */
+export const ELEVATE =
+	process.platform === "win32" ? "run as administrator" : "run with sudo";
+
 /** Our side of a connection: its process, else its user, else nobody (closing). */
 const connOwner = (x: Connection) =>
 	x.process
@@ -84,7 +88,10 @@ export function ownerLabel(l: Listener): string {
 	if (l.container)
 		return `container ${l.container.name}${l.published ? ` :${l.published.containerPort}` : ""}`;
 	if (l.process) return procLabel(l.process);
-	return `${l.user}'s process (sudo to see it)`;
+	// Windows names every socket's process; one gone since keeps its pid
+	const pid = l.sockets.find((s) => s.pid !== undefined)?.pid;
+	if (pid !== undefined) return `pid ${pid}`;
+	return `${l.user ?? "another user"}'s process (${process.platform === "win32" ? "run as administrator" : "sudo"} to see it)`;
 }
 
 export function reachLabel(l: Listener, o: RenderOptions): string {
@@ -94,7 +101,9 @@ export function reachLabel(l: Listener, o: RenderOptions): string {
 		l.reach.scope === "local"
 			? "this machine only"
 			: l.reach.scope === "everywhere"
-				? "every interface"
+				? l.reach.ipv6Only
+					? "every interface, IPv6 only"
+					: "every interface"
 				: l.reach.interfaces.join(", ") || "no interface";
 	return windows ? `${base} + Windows` : base;
 }
@@ -102,7 +111,10 @@ export function reachLabel(l: Listener, o: RenderOptions): string {
 const addressLabel = (l: Listener) => {
 	const a = l.addresses;
 	if (a.length === 2 && a.includes("0.0.0.0") && a.includes("::")) return "*";
-	return a.join(", ");
+	// a service bound to each address on its own (Windows' SSDP has six): the first two
+	return a.length > 2
+		? `${a.slice(0, 2).join(", ")} +${a.length - 2}`
+		: a.join(", ");
 };
 
 export function peerLabel(p: Peer, remote: string): string {
@@ -308,12 +320,14 @@ export function renderWho(r: WhoReport, o: RenderOptions): string {
 		if (l.process)
 			kv.push([
 				"process",
-				`${l.process.cmd}  ${c.dim(`(pid ${l.process.pid}, ${l.user})`)}`,
+				`${l.process.cmd}  ${c.dim(`(pid ${l.process.pid}${l.user ? `, ${l.user}` : ""})`)}`,
 			]);
 		else if (!l.container)
 			kv.push([
 				"process",
-				c.yellow(`owned by ${l.user}: run with sudo to see which process`),
+				c.yellow(
+					`owned by ${l.user ?? "another user"}: ${ELEVATE} to see which process`,
+				),
 			]);
 		if (l.container) {
 			const ct = l.container;
@@ -448,7 +462,7 @@ export function renderMap(m: MapReport, o: RenderOptions): string {
 	if (m.hidden)
 		out.push(
 			c.dim(
-				`${m.hidden} processes of other users hidden: run with sudo to see their sockets`,
+				`${m.hidden} processes of other users hidden: ${ELEVATE} to see their sockets`,
 			),
 		);
 	return out.join("\n").trimEnd();

@@ -6,7 +6,6 @@ import { banner } from "../src/logo.ts";
 
 const root = join(import.meta.dir, "..");
 const hasNode = spawnSync("node", ["--version"]).status === 0;
-const onLinux = process.platform === "linux";
 
 const run = (...args: string[]) =>
 	spawnSync("node", ["dist/netbeagle.js", ...args], {
@@ -68,7 +67,7 @@ test.skipIf(!hasNode)(
 	},
 );
 
-test.skipIf(!hasNode || !onLinux)(
+test.skipIf(!hasNode)(
 	"every command runs on this machine, as JSON",
 	() => {
 		for (const cmd of [
@@ -82,19 +81,20 @@ test.skipIf(!hasNode || !onLinux)(
 			expect(r.status, `${cmd.join(" ")}: ${r.stderr}`).toBe(0);
 			expect(() => JSON.parse(r.stdout)).not.toThrow();
 		}
+		// lo, lo0 on macOS, "Loopback Pseudo-Interface 1" on Windows
 		const lo = JSON.parse(
-			run("route", "127.0.0.1", "--json", "--no-docker").stdout,
-		);
-		expect(lo).toMatchObject({ kind: "loopback", iface: "lo" });
+			run("interfaces", "--json", "--no-docker").stdout,
+		).find((i: { kind: string }) => i.kind === "loopback")?.name;
+		expect(lo).toBeString();
 		expect(
-			JSON.parse(run("interfaces", "--json", "--no-docker").stdout).map(
-				(i: { name: string }) => i.name,
-			),
-		).toContain("lo");
+			JSON.parse(run("route", "127.0.0.1", "--json", "--no-docker").stdout),
+		).toMatchObject({ kind: "loopback", iface: lo });
+		// each run asks the OS afresh: a few seconds on Windows, where PowerShell starts each time
 	},
+	120_000,
 );
 
-test.skipIf(!hasNode || !onLinux)(
+test.skipIf(!hasNode)(
 	"who finds a port this test listens on, with its process",
 	async () => {
 		const { createServer } = await import("node:net");
@@ -123,4 +123,5 @@ test.skipIf(!hasNode || !onLinux)(
 			server.close();
 		}
 	},
+	60_000,
 );

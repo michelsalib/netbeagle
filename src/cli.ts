@@ -14,6 +14,7 @@ import {
 import { collect } from "./collect.ts";
 import {
 	connectionJson,
+	ELEVATE,
 	ifaceViewJson,
 	listenerJson,
 	mapJson,
@@ -99,9 +100,9 @@ async function main(argv: string[]): Promise<number> {
 	const command = ALIASES[given] ?? given;
 	if (!COMMAND_HELP[command]) return usage(`no command '${given}'`);
 	usageHint = `netbeagle ${command} --help`;
-	if (process.platform !== "linux") {
+	if (!["linux", "darwin", "win32"].includes(process.platform)) {
 		console.error(
-			`netbeagle reads Linux's /proc and /sys, so it runs on Linux and WSL for now; macOS and Windows are planned`,
+			`netbeagle runs on Linux, macOS and Windows, not ${process.platform}`,
 		);
 		return 2;
 	}
@@ -127,7 +128,7 @@ async function main(argv: string[]): Promise<number> {
 					...opts,
 					color: !!process.stderr.isTTY && !process.env.NO_COLOR,
 				}).dim(
-					`\n${n} sockets belong to other users' processes: sudo shows which`,
+					`\n${n} sockets belong to other users' processes: ${ELEVATE} to see which`,
 				),
 			);
 	};

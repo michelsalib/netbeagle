@@ -26,6 +26,8 @@ import {
 export interface Reach {
 	scope: "local" | "everywhere" | "interfaces";
 	interfaces: string[];
+	/** Bound to :: only, taking IPv6 alone: Windows' default, an option elsewhere. */
+	ipv6Only?: boolean;
 }
 
 export interface Listener {
@@ -35,8 +37,9 @@ export interface Listener {
 	addresses: string[];
 	reach: Reach;
 	process?: Process;
-	/** The owner's user name (or uid), known even when the process is not. */
-	user: string;
+	/** The owner's user name (or uid), known even when the process is not; unknown on Windows, and
+	 * on macOS for other users' sockets without root. */
+	user?: string;
 	/** The container publishing this port, through docker-proxy or the firewall. */
 	container?: Container;
 	published?: PublishedPort;
@@ -82,8 +85,12 @@ export interface RouteResult {
 	container?: Container;
 }
 
-export const userName = (snap: Snapshot, uid: number) =>
-	snap.users[uid] ?? String(uid);
+export const userName = (snap: Snapshot, uid: number | undefined) =>
+	uid === undefined ? undefined : (snap.users[uid] ?? String(uid));
+
+/** The loopback interface's name: lo, lo0 on macOS, "Loopback Pseudo-Interface 1" on Windows. */
+const loopback = (snap: Snapshot) =>
+	snap.interfaces.find((i) => i.kind === "loopback")?.name ?? "lo";
 
 const processOf = (snap: Snapshot, pid: number | undefined) =>
 	pid === undefined ? undefined : snap.processes.find((p) => p.pid === pid);
@@ -103,7 +110,7 @@ export function routeTo(snap: Snapshot, ip: string): RouteResult {
 	const family = familyOf(ip) ?? 4;
 	const base = { dest: ip, family };
 	if (isLoopback(ip))
-		return { ...base, kind: "loopback", iface: "lo", source: ip };
+		return { ...base, kind: "loopback", iface: loopback(snap), source: ip };
 	const own = ownAddress(snap, ip);
 	if (own) return { ...base, kind: "local", iface: own.name, source: ip };
 	const best = snap.routes
@@ -129,21 +136,30 @@ export function routeTo(snap: Snapshot, ip: string): RouteResult {
 	};
 }
 
-function reachOf(snap: Snapshot, addresses: string[]): Reach {
+function reachOf(
+	snap: Snapshot,
+	addresses: string[],
+	sockets: Socket[] = [],
+): Reach {
 	// an address on the loopback interface (WSL's 10.255.255.254) is as local as 127.0.0.1
 	const local = (a: string) =>
 		isLoopback(a) || ownAddress(snap, a)?.kind === "loopback";
-	if (addresses.every(local)) return { scope: "local", interfaces: ["lo"] };
+	if (addresses.every(local))
+		return { scope: "local", interfaces: [loopback(snap)] };
 	const up = snap.interfaces.filter(
 		(i) => i.state !== "down" && i.addresses.length,
 	);
 	if (addresses.some(isWildcard)) {
-		// a socket on :: also takes IPv4 (net.ipv6.bindv6only is 0 by default)
-		const fams = new Set<Family>(
-			addresses.some((a) => a === "::") ? [4, 6] : [4],
-		);
+		// a socket on :: also takes IPv4, unless it is IPv6 only (Windows' default)
+		const fams = new Set<Family>(addresses.includes("0.0.0.0") ? [4] : []);
+		if (addresses.includes("::")) {
+			fams.add(6);
+			const v6 = sockets.filter((s) => s.local.address === "::");
+			if (!v6.length || v6.some((s) => !s.v6only)) fams.add(4);
+		}
 		return {
 			scope: "everywhere",
+			...(!fams.has(4) && { ipv6Only: true }),
 			interfaces: up
 				// a bridge's ports carry its traffic, they are not ways in of their own
 				.filter((i) => !i.master)
@@ -153,7 +169,7 @@ function reachOf(snap: Snapshot, addresses: string[]): Reach {
 	}
 	const names = new Set<string>();
 	for (const a of addresses) {
-		if (isLoopback(a)) names.add("lo");
+		if (isLoopback(a)) names.add(loopback(snap));
 		const i = ownAddress(snap, a);
 		if (i) names.add(i.name);
 	}
@@ -199,7 +215,7 @@ export function listeners(snap: Snapshot): Listener[] {
 			? `c${pub.container.id}`
 			: s.pid !== undefined
 				? `p${s.pid}`
-				: `u${s.uid}`;
+				: `u${s.uid ?? "?"}`;
 		const key = `${s.proto}/${s.local.port}/${owner}`;
 		let l = groups.get(key);
 		if (!l) {
@@ -250,7 +266,7 @@ export function listeners(snap: Snapshot): Listener[] {
 			});
 		}
 	const all = [...groups.values()];
-	for (const l of all) l.reach = reachOf(snap, l.addresses);
+	for (const l of all) l.reach = reachOf(snap, l.addresses, l.sockets);
 	for (const c of connections(snap, all))
 		if (c.direction === "in")
 			listenerFor(all, c.proto, c.local)?.clients.push(c);
@@ -279,7 +295,7 @@ export function connections(snap: Snapshot, known?: Listener[]): Connection[] {
 			remote: s.remote,
 			state: s.state,
 			process: processOf(snap, s.pid),
-			user: s.inode === 0 ? undefined : userName(snap, s.uid),
+			user: s.orphan ? undefined : userName(snap, s.uid),
 			direction,
 			peer: peerOf(snap, all, s),
 		});
@@ -423,4 +439,6 @@ export function map(snap: Snapshot): MapReport {
 
 /** Sockets netbeagle could not tie to a process: other users', without root. */
 export const unowned = (snap: Snapshot) =>
-	snap.sockets.filter((s) => s.pid === undefined && s.uid !== snap.uid).length;
+	snap.sockets.filter(
+		(s) => s.pid === undefined && !s.orphan && s.uid !== snap.uid,
+	).length;

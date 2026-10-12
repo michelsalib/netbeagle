@@ -116,6 +116,14 @@ export function networkOf(a: Address): string {
 	return a.family === 4 ? out.join(".") : formatIPv6(out);
 }
 
+/** An address as a command prints it, as netbeagle keeps it: no %zone, IPv4-mapped IPv6 unwrapped. */
+export function plainIP(ip: string): { family: Family; address: string } {
+	const a = ip.replace(/%.*$/, "").toLowerCase();
+	const mapped = a.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+	if (mapped?.[1]) return { family: 4, address: mapped[1] };
+	return { family: a.includes(":") ? 6 : 4, address: a };
+}
+
 export const isWildcard = (ip: string) => ip === "0.0.0.0" || ip === "::";
 export const isLoopback = (ip: string) => ip === "::1" || ip.startsWith("127.");
 export const isLinkLocal = (ip: string) =>

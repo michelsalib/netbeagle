@@ -1,0 +1,49 @@
+// Linux: everything from /proc, /sys and /etc. Every path is relative to `root`, so tests can
+// point it at a fixture tree instead of the real machine.
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { Address, Snapshot } from "../model.ts";
+import { readInterfaces, systemAddresses } from "./interfaces.ts";
+import { readUsers, scanProcesses } from "./processes.ts";
+import { readRoutes } from "./routes.ts";
+import { readSockets } from "./sockets.ts";
+
+export function collectLinux(
+	root: string,
+	addresses?: Record<string, Address[]>,
+): Omit<Snapshot, "hostname" | "containers" | "uid"> {
+	const proc = join(root, "proc");
+	const read = (p: string) => {
+		try {
+			return readFileSync(join(root, p), "utf8");
+		} catch {
+			return "";
+		}
+	};
+	const scan = scanProcesses(proc);
+	// a socket on :: takes IPv4 too unless the system says otherwise (or the program, which /proc doesn't show)
+	const v6only = read("proc/sys/net/ipv6/bindv6only").trim() === "1";
+	const sockets = readSockets(proc).map((s) => ({
+		...s,
+		pid: s.inode === undefined ? undefined : scan.owners.get(s.inode),
+		...(v6only && s.local.address === "::" && { v6only: true }),
+	}));
+	return {
+		environment: /microsoft|wsl/i.test(read("proc/sys/kernel/osrelease"))
+			? "wsl"
+			: "linux",
+		interfaces: readInterfaces(
+			join(root, "sys"),
+			addresses ?? systemAddresses(),
+		),
+		routes: readRoutes(proc),
+		sockets,
+		processes: scan.processes,
+		users: readUsers(join(root, "etc/passwd")),
+		dns: [...read("etc/resolv.conf").matchAll(/^\s*nameserver\s+(\S+)/gm)].map(
+			(m) => m[1] ?? "",
+		),
+		hidden: scan.hidden,
+	};
+}

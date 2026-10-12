@@ -18,8 +18,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # netbeagle reads Linux's /proc and /sys; arm64 runs its own binary
-        os: [ubuntu-latest, ubuntu-24.04-arm]
+        # each OS has its own collector; arm64 Linux runs its own binary
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
         node: [24]
         # the oldest Node versions engines allows run the built file too
         include:
@@ -28,7 +28,7 @@ jobs:
           - os: ubuntu-latest
             node: 22
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       # actions are pinned to a commit; Dependabot proposes updates
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,21 +50,37 @@ jobs:
       - run: node dist/netbeagle.js map
       # the release files must be reproducible from the source: the same build twice
       - name: Build is deterministic
+        if: runner.os == 'Linux'
         run: cp dist/netbeagle.js /tmp/first.js && bun run build && cmp /tmp/first.js dist/netbeagle.js
       # the fixture is generated: it must match its script
       - name: Fixture is up to date
+        if: runner.os == 'Linux'
         run: python3 scripts/fixture.py && git diff --exit-code test/fixtures
-      # the release cross-compiles both on x64; each architecture runs its own, and prints every hash:
-      # the same on both runners means the cross-compiled one is the native one
+      # the release cross-compiles them all on Linux; each OS runs its own, and prints every hash:
+      # the same on every runner means the cross-compiled ones are the native ones
       - name: Standalone binaries
         if: matrix.node == 24
+        shell: bash
         run: |
           bun run build:bin
-          (cd dist/bin && sha256sum *)
-          case "$RUNNER_ARCH" in
-            X64) bin=netbeagle-linux-x64 ;;
-            ARM64) bin=netbeagle-linux-arm64 ;;
+          (cd dist/bin && (sha256sum * 2>/dev/null || shasum -a 256 *))
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) bin=netbeagle-linux-x64 ;;
+            Linux-ARM64) bin=netbeagle-linux-arm64 ;;
+            macOS-ARM64) bin=netbeagle-darwin-arm64 ;;
+            macOS-X64) bin=netbeagle-darwin-x64 ;;
+            Windows-X64) bin=netbeagle-windows-x64.exe ;;
           esac
           dist/bin/$bin --version
           dist/bin/$bin map > /dev/null
+          dist/bin/$bin list
       - run: shellcheck install.sh
+        if: runner.os == 'Linux'
+      - name: PSScriptAnalyzer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
+          $issues = Invoke-ScriptAnalyzer -Path install.ps1 -Severity Warning,Error
+          $issues | Format-Table -AutoSize
+          if ($issues) { exit 1 }

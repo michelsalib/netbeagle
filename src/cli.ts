@@ -14,7 +14,7 @@ import {
 import { collect } from "./collect.ts";
 import {
 	connectionJson,
-	ELEVATE,
+	elevate,
 	ifaceViewJson,
 	listenerJson,
 	mapJson,
@@ -115,6 +115,7 @@ async function main(argv: string[]): Promise<number> {
 		color: tty && !process.env.NO_COLOR,
 		width: tty ? process.stdout.columns : undefined,
 		wsl: snap.environment === "wsl",
+		windows: snap.environment === "windows",
 	};
 	const print = (render: () => string, data: () => unknown) =>
 		console.log(values.json ? JSON.stringify(data(), null, 2) : render());
@@ -128,7 +129,7 @@ async function main(argv: string[]): Promise<number> {
 					...opts,
 					color: !!process.stderr.isTTY && !process.env.NO_COLOR,
 				}).dim(
-					`\n${n} sockets belong to other users' processes: ${ELEVATE} to see which`,
+					`\n${n} sockets belong to other users' processes: ${elevate(opts)} to see which`,
 				),
 			);
 	};

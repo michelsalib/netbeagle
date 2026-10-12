@@ -1,6 +1,7 @@
 // Windows, from what netbeagle's PowerShell script prints: test/fixtures/windows.
 import { expect, test } from "bun:test";
 import { connections, listeners, routeTo, unowned } from "../src/analyze.ts";
+import { ownerLabel } from "../src/format.ts";
 import { windowsFixture } from "./helpers.ts";
 
 const snap = windowsFixture();
@@ -110,4 +111,21 @@ test("processes: no .exe, the name when the command line is hidden; DNS without 
 	expect(snap.processes.find((p) => p.pid === 1500)?.cmd).toBe("svchost");
 	// fec0:0:0:ffff::* are Windows' stand-ins; Wi-Fi is down
 	expect(snap.dns).toEqual(["192.168.1.1"]);
+});
+
+test("hints name an administrator terminal for a Windows snapshot, sudo otherwise, wherever it runs", () => {
+	const [first] = listeners(snap);
+	if (!first) throw new Error("no listener");
+	const l = {
+		...first,
+		process: undefined,
+		sockets: [],
+		user: undefined,
+	};
+	expect(ownerLabel(l, { color: false, windows: true })).toBe(
+		"another user's process (run as administrator to see it)",
+	);
+	expect(ownerLabel(l, { color: false })).toBe(
+		"another user's process (sudo to see it)",
+	);
 });

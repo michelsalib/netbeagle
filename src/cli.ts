@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { lookup } from "node:dns/promises";
+import { realpathSync } from "node:fs";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
+import { dirname } from "node:path";
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import {
@@ -35,6 +37,21 @@ import { ALIASES, COMMAND_HELP, commandHelp, overview } from "./help.ts";
 import { killPort } from "./kill.ts";
 import { banner } from "./logo.ts";
 import { maskCmd, type Snapshot } from "./model.ts";
+import {
+	binaryName,
+	compiled,
+	fetchLatest,
+	installKind,
+	latestRelease,
+	newer,
+	type Release,
+	replaceBinary,
+	replaceScript,
+	selfPath,
+	stateFile,
+	updateNotice,
+	upgradeCommand,
+} from "./update.ts";
 import { runWatch } from "./watch/terminal.ts";
 
 const TAGLINE =
@@ -47,7 +64,15 @@ function usage(message: string): number {
 	return 2;
 }
 
+/** A newer version, said once a week after a command. */
+let notice: string | undefined;
+
 async function main(argv: string[]): Promise<number> {
+	// hidden, started in the background by updateNotice
+	if (argv[0] === "__update-check") {
+		await fetchLatest(argv[1] ?? stateFile());
+		return 0;
+	}
 	const { values, positionals } = parseArgs({
 		args: argv,
 		allowPositionals: true,
@@ -116,6 +141,20 @@ async function main(argv: string[]): Promise<number> {
 		);
 		return 2;
 	}
+
+	// only for a person at a terminal; never in scripts, CI, with --json, or in watch's own refreshes
+	const env = process.env;
+	if (
+		process.stderr.isTTY &&
+		!values.json &&
+		!values.snapshot &&
+		!env.CI &&
+		!env.NETBEAGLE_NO_UPDATE_CHECK &&
+		!env.NO_UPDATE_NOTIFIER &&
+		command !== "upgrade"
+	)
+		notice = updateNotice(pkg.version, selfPath(), stateFile());
+	if (command === "upgrade") return upgrade();
 
 	const tty = process.stdout.isTTY;
 	if (command === "watch") {
@@ -261,9 +300,50 @@ async function main(argv: string[]): Promise<number> {
 	return usage(`no command '${given}'`);
 }
 
+/**
+ * Replaces this netbeagle with the latest release, checked against SHA256SUMS and against npm's copy,
+ * when it was installed with install.sh or install.ps1; other installs get the command to run.
+ */
+async function upgrade(): Promise<number> {
+	const script = realpathSync(selfPath());
+	const kind = installKind(script);
+	const binary = compiled();
+	const file = binary ? binaryName() : "netbeagle.js";
+	if (!file) {
+		console.error("netbeagle: no netbeagle binary is built for this platform");
+		return 1;
+	}
+	if (kind !== "standalone") {
+		console.log(
+			`This netbeagle was not installed with ${process.platform === "win32" ? "install.ps1" : "install.sh"}. Update it with:\n  ${upgradeCommand(kind)}`,
+		);
+		return 0;
+	}
+	let release: Release;
+	try {
+		release = await latestRelease(process.env, file);
+	} catch (e) {
+		console.error(
+			`netbeagle: ${e instanceof Error ? e.message : e}; nothing was changed`,
+		);
+		return 1;
+	}
+	if (!newer(release.version, pkg.version)) {
+		console.log(`netbeagle ${pkg.version} is the latest version`);
+		return 0;
+	}
+	if (binary) replaceBinary(script, release.data);
+	else replaceScript(script, release.data);
+	console.log(
+		`upgraded netbeagle ${pkg.version} to ${release.version} in ${dirname(script)}`,
+	);
+	return 0;
+}
+
 main(process.argv.slice(2)).then(
 	(code) => {
 		process.exitCode = code;
+		if (notice) process.stderr.write(`\n${notice}\n`);
 	},
 	(e: unknown) => {
 		if (

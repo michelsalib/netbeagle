@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { emitKeypressEvents } from "node:readline";
 import type { Snapshot } from "../model.ts";
 import { alive, stop } from "../stop.ts";
+import { compiled } from "../update.ts";
 import {
 	applySnapshot,
 	type Effect,
@@ -21,13 +22,10 @@ const ENTER = "\x1b[?1049h\x1b[?25l"; // alternate screen, hide cursor
 const LEAVE = "\x1b[?25h\x1b[?1049l";
 
 /** How to run this netbeagle again: the binary itself, or the runtime and the script. */
-function self(): [string, string[]] {
-	const script = process.argv[1] ?? "";
-	// a standalone binary (bun build --compile) runs its script from Bun's virtual file system
-	return /[\\/](\$bunfs|~BUN)[\\/]/.test(script)
+const self = (): [string, string[]] =>
+	compiled()
 		? [process.execPath, []]
-		: [process.execPath, [script]];
-}
+		: [process.execPath, [process.argv[1] ?? ""]];
 
 export interface WatchOptions {
 	color: boolean;

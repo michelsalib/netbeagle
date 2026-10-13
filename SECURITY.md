@@ -35,8 +35,10 @@ These are worth knowing when you judge what counts as a vulnerability:
   all, and still only reads.
 - **Secret values are masked** in command lines (the values of `--token=`, `--password` and the like)
   in every output, `--json` included, unless you pass `--show-secrets`.
-- **Network:** none, except `netbeagle route HOST` with a host name, which asks your DNS resolver for its
-  address.
+- **Network:** `netbeagle route HOST` with a host name asks your DNS resolver for its address. Once a
+  week a background process asks the npm registry for the latest version (`NETBEAGLE_NO_UPDATE_CHECK=1`
+  turns it off; never in CI, scripts or with `--json`), and `netbeagle upgrade` downloads the new
+  release. Nothing else.
 
 ## Verifying a release
 
@@ -54,6 +56,10 @@ npm audit signatures
 The build is reproducible: `git checkout vX.Y.Z && bun install --frozen-lockfile && bun run build`
 gives the same `dist/netbeagle.js` as the release's `SHA256SUMS` (with the Bun version in
 `.bun-version`).
+
+`netbeagle upgrade` checks this for you before replacing itself: the file must match the release's
+`SHA256SUMS` and be byte for byte the one in the npm package of the same version. A standalone
+binary must match `SHA256SUMS` on GitHub and the copy of `SHA256SUMS` published in the npm package.
 
 The sources are analysed by CodeQL on every pull request, and the project's practices are tracked by
 [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/michelsalib/netbeagle).

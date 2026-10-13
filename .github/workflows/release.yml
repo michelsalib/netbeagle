@@ -106,10 +106,11 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      # npm gets the very file attested above; no scripts run here, so nothing rebuilds it
+      # npm gets the very file attested above; no scripts run here, so nothing rebuilds it.
+      # SHA256SUMS goes too: netbeagle upgrade checks a binary from GitHub against npm's copy
       - name: npm publish
         run: |
-          mkdir -p dist && cp release/netbeagle.js dist/
+          mkdir -p dist && cp release/netbeagle.js release/SHA256SUMS dist/
           npm publish --provenance --access public --ignore-scripts
       # the provenance attested above, as a release file too: tools that look at the release itself
       # (OpenSSF Scorecard, slsa-verifier) find it there; gh attestation verify needs nothing more

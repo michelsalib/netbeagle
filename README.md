@@ -122,7 +122,7 @@ curl -fsSL https://github.com/michelsalib/netbeagle/releases/latest/download/ins
 To pin a version, or to read the script before running it:
 
 ```sh
-curl -fsSL https://github.com/michelsalib/netbeagle/releases/download/v0.2.0/install.sh -o install.sh
+curl -fsSL https://github.com/michelsalib/netbeagle/releases/download/v0.3.0/install.sh -o install.sh
 less install.sh && sh install.sh
 gh attestation verify install.sh -R michelsalib/netbeagle   # optional: proves GitHub Actions built it
 ```
@@ -141,7 +141,7 @@ scoop bucket add netbeagle https://github.com/michelsalib/scoop-netbeagle
 scoop install netbeagle/netbeagle                               # Scoop, Windows
 ```
 
-`install.sh` puts `netbeagle` in `~/.local/bin` (`NETBEAGLE_INSTALL_DIR` to change it, `NETBEAGLE_VERSION=0.2.0`
+`install.sh` puts `netbeagle` in `~/.local/bin` (`NETBEAGLE_INSTALL_DIR` to change it, `NETBEAGLE_VERSION=0.3.0`
 to pin a version), checks it against the release's `SHA256SUMS`, and runs it on Node, or on Bun when there
 is no Node ≥ 20. With neither, or with `NETBEAGLE_BINARY=1`, it installs the standalone binary for your
 system (Linux and macOS, x64 and arm64). `install.ps1` does the same on Windows, in

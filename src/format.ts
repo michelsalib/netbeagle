@@ -8,8 +8,9 @@ import type {
 	WhoReport,
 } from "./analyze.ts";
 import type { Finding } from "./doctor.ts";
-import type { Container, Iface, Process, Route } from "./model.ts";
+import type { Container, Iface, Process, Route, Snapshot } from "./model.ts";
 import { endpoint, isWildcard } from "./net.ts";
+import { startedBy } from "./stop.ts";
 
 export interface RenderOptions {
 	color: boolean;
@@ -33,6 +34,7 @@ export function paint(o: RenderOptions) {
 		blue: wrap("34"),
 		magenta: wrap("35"),
 		cyan: wrap("36"),
+		inverse: wrap("7"),
 	};
 }
 
@@ -73,6 +75,22 @@ function table(
 }
 
 export const procLabel = (p: Process) => `${p.name} ${p.pid}`;
+
+/** A path under the home directory as ~/…. */
+export const tilde = (path: string, home?: string) =>
+	home &&
+	(path === home || path.startsWith(`${home}/`) || path.startsWith(`${home}\\`))
+		? `~${path.slice(home.length)}`
+		: path;
+
+/** Where a process runs: its git checkout and branch, else its directory, else (Windows, which gives
+ * no directory) its arguments. */
+export function place(p: Process, home?: string): string {
+	if (p.git)
+		return `${p.git.root.split(/[\\/]/).pop()}${p.git.branch ? ` (${p.git.branch})` : " (detached)"}`;
+	if (p.cwd) return tilde(p.cwd, home);
+	return p.cmd.split(/\s+/).slice(1).join(" ");
+}
 
 /** How to see other users' processes: sudo, or on Windows an administrator terminal. */
 export const elevate = (o?: RenderOptions) =>
@@ -312,7 +330,11 @@ export function renderConnections(
 	return out.join("\n");
 }
 
-export function renderWho(r: WhoReport, o: RenderOptions): string {
+export function renderWho(
+	r: WhoReport,
+	o: RenderOptions & { home?: string; now?: number },
+	snap?: Snapshot,
+): string {
 	const c = paint(o);
 	const out: string[] = [];
 	if (!r.listeners.length && !r.outbound.length)
@@ -325,6 +347,19 @@ export function renderWho(r: WhoReport, o: RenderOptions): string {
 				"process",
 				`${l.process.cmd}  ${c.dim(`(pid ${l.process.pid}${l.user ? `, ${l.user}` : ""})`)}`,
 			]);
+		const p = l.process;
+		if (p?.git)
+			kv.push([
+				"checkout",
+				`${tilde(p.git.root, o.home)}  ${p.git.branch ? `branch ${p.git.branch}` : "detached HEAD"}${p.git.worktree ? c.dim("  (worktree)") : ""}`,
+			]);
+		if (p?.cwd && p.cwd !== p.git?.root)
+			kv.push(["directory", tilde(p.cwd, o.home)]);
+		if (p && snap) {
+			const up = startedBy(snap, p.pid).slice(0, 3);
+			if (up.length) kv.push(["started by", up.map(procLabel).join(" ← ")]);
+		}
+		if (p?.started) kv.push(["up since", new Date(p.started).toLocaleString()]);
 		else if (!l.container)
 			kv.push([
 				"process",

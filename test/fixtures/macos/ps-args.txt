@@ -2,6 +2,8 @@
   312 /usr/sbin/sshd -i
   420 /usr/sbin/mDNSResponder
  2000 /opt/homebrew/opt/postgresql@18/bin/postgres -D /opt/homebrew/var/postgresql@18
+ 2900 -zsh
+ 2950 bun run dev
  3000 node server.js --token=s3cret
  3100 /usr/bin/python3 -m http.server --bind ::1 5000
  3200 /Applications/My App.app/Contents/MacOS/My App --port 9090

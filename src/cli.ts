@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
+import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import pkg from "../package.json" with { type: "json" };
 import {
@@ -31,8 +32,10 @@ import {
 	routeJson,
 } from "./format.ts";
 import { ALIASES, COMMAND_HELP, commandHelp, overview } from "./help.ts";
+import { killPort } from "./kill.ts";
 import { banner } from "./logo.ts";
 import { maskCmd, type Snapshot } from "./model.ts";
+import { runWatch } from "./watch/terminal.ts";
 
 const TAGLINE =
 	"see what listens on each port, who reaches it, and how everything connects";
@@ -55,6 +58,11 @@ async function main(argv: string[]): Promise<number> {
 			all: { type: "boolean", short: "a" },
 			"no-docker": { type: "boolean" },
 			"show-secrets": { type: "boolean" },
+			tree: { type: "boolean" },
+			force: { type: "boolean" },
+			yes: { type: "boolean", short: "y" },
+			// what netbeagle watch reads each time, from a netbeagle of its own: the raw snapshot
+			snapshot: { type: "boolean" },
 			help: { type: "boolean", short: "h" },
 			version: { type: "boolean", short: "v" },
 		},
@@ -110,9 +118,27 @@ async function main(argv: string[]): Promise<number> {
 	}
 
 	const tty = process.stdout.isTTY;
+	if (command === "watch") {
+		if (!process.stdin.isTTY || !tty)
+			return usage("watch needs a terminal: use netbeagle list in scripts");
+		await runWatch({
+			color: !process.env.NO_COLOR,
+			args: [
+				...(values["no-docker"] ? ["--no-docker"] : []),
+				...(values["show-secrets"] ? ["--show-secrets"] : []),
+			],
+			// PowerShell takes a couple of seconds to start: refresh less often on Windows
+			interval: process.platform === "win32" ? 3000 : 1500,
+		});
+		return 0;
+	}
 	const snap: Snapshot = collect(values["no-docker"] ? { containers: [] } : {});
 	if (!values["show-secrets"])
 		for (const p of snap.processes) p.cmd = maskCmd(p.cmd);
+	if (values.snapshot) {
+		process.stdout.write(JSON.stringify(snap));
+		return 0;
+	}
 	const opts: RenderOptions = {
 		color: tty && !process.env.NO_COLOR,
 		width: tty ? process.stdout.columns : undefined,
@@ -152,7 +178,7 @@ async function main(argv: string[]): Promise<number> {
 				return usage("who takes a port number, e.g. netbeagle who 5432");
 			const r = who(snap, port);
 			print(
-				() => renderWho(r, opts),
+				() => renderWho(r, { ...opts, home: homedir() }, snap),
 				() => ({
 					port,
 					listeners: r.listeners.map(listenerJson),
@@ -210,6 +236,17 @@ async function main(argv: string[]): Promise<number> {
 			);
 			hiddenNote();
 			return findings.some((f) => f.severity === "error") ? 1 : 0;
+		}
+		case "kill": {
+			const port = Number(args[0]?.replace(/^:/, ""));
+			if (!args[0] || !Number.isInteger(port) || port < 1 || port > 65535)
+				return usage("kill takes a port number, e.g. netbeagle kill 3000");
+			return killPort(snap, port, {
+				tree: !!values.tree,
+				force: !!values.force,
+				yes: !!values.yes,
+				opts,
+			});
 		}
 		case "map": {
 			const m = map(snap);

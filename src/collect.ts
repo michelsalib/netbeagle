@@ -4,6 +4,7 @@
 import { hostname } from "node:os";
 import { collectDarwin } from "./darwin/collect.ts";
 import { readContainers } from "./docker.ts";
+import { checkoutOf } from "./git.ts";
 import { collectLinux } from "./linux/collect.ts";
 import type { Address, Container, Snapshot } from "./model.ts";
 import { type Run, run as system } from "./run.ts";
@@ -43,6 +44,13 @@ export function collect(o: CollectOptions = {}): Snapshot {
 			bridge: n.bridge && names.has(n.bridge) ? n.bridge : undefined,
 		})),
 	}));
+	// the git checkout each process runs in: which worktree's dev server is which
+	const cache = new Map();
+	for (const p of machine.processes)
+		if (p.cwd) {
+			const git = checkoutOf(p.cwd, cache);
+			if (git) p.git = git;
+		}
 	return {
 		hostname: o.hostname ?? hostname(),
 		...machine,

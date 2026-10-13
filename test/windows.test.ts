@@ -103,7 +103,7 @@ test("sockets: every one has its process; :: takes IPv6 only; Bound ones are not
 });
 
 test("processes: no .exe, the name when the command line is hidden; DNS without placeholders", () => {
-	expect(snap.processes.find((p) => p.pid === 3000)).toEqual({
+	expect(snap.processes.find((p) => p.pid === 3000)).toMatchObject({
 		pid: 3000,
 		name: "node",
 		cmd: "node server.js --token=s3cret",
@@ -128,4 +128,13 @@ test("hints name an administrator terminal for a Windows snapshot, sudo otherwis
 	expect(ownerLabel(l, { color: false })).toBe(
 		"another user's process (sudo to see it)",
 	);
+});
+
+test("processes: their parent and start time, from Win32_Process", () => {
+	expect(snap.processes.find((p) => p.pid === 3000)).toMatchObject({
+		ppid: 2900,
+		started: 1760000600000,
+	});
+	// pid 0 and System have neither
+	expect(snap.processes.find((p) => p.pid === 4)?.ppid).toBeUndefined();
 });

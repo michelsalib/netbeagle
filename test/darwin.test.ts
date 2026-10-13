@@ -1,7 +1,12 @@
 // macOS, from recorded command output: test/fixtures/macos.
 import { expect, test } from "bun:test";
 import { connections, listeners, routeTo, unowned } from "../src/analyze.ts";
-import { parseLsof, parseNetstatSockets } from "../src/darwin/collect.ts";
+import {
+	elapsed,
+	parseLsof,
+	parseNetstatSockets,
+	parsePs,
+} from "../src/darwin/collect.ts";
 import { macFixture } from "./helpers.ts";
 
 const snap = macFixture();
@@ -158,7 +163,7 @@ test("without root: our sockets have their process, other users' none, and say s
 });
 
 test("processes and users from ps; DNS from /etc/resolv.conf", () => {
-	expect(snap.processes.find((p) => p.pid === 3200)).toEqual({
+	expect(snap.processes.find((p) => p.pid === 3200)).toMatchObject({
 		pid: 3200,
 		name: "My App",
 		cmd: "/Applications/My App.app/Contents/MacOS/My App --port 9090",
@@ -166,4 +171,30 @@ test("processes and users from ps; DNS from /etc/resolv.conf", () => {
 	});
 	expect(snap.users).toMatchObject({ 0: "root", 216: "_postgres", 501: "me" });
 	expect(snap.dns).toEqual(["192.168.1.1", "2001:db8::1"]);
+});
+
+test("ps: parents, and start times from etime, whatever the locale", () => {
+	expect(elapsed("05")).toBe(5000);
+	expect(elapsed("10:05")).toBe(605_000);
+	expect(elapsed("01:02:03")).toBe(3_723_000);
+	expect(elapsed("2-00:00:01")).toBe(172_801_000);
+	const { processes } = parsePs(
+		" 3000  2950   501 me   10:00 node\n",
+		" 3000 node server.js\n",
+		1_000_000,
+	);
+	expect(processes).toEqual([
+		{
+			pid: 3000,
+			name: "node",
+			cmd: "node server.js",
+			uid: 501,
+			ppid: 2950,
+			started: 400_000,
+		},
+	]);
+	// lsof gave the servers' working directories
+	expect(snap.processes.find((p) => p.pid === 3000)?.cwd).toBe(
+		"/Users/me/src/app-feature",
+	);
 });

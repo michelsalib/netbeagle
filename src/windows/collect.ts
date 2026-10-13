@@ -44,7 +44,7 @@ $g = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties()
   udp = @(Get-NetUDPEndpoint | ForEach-Object { ,@($_.LocalAddress, $_.LocalPort, $_.OwningProcess) })
   interfaces = @($ifaces)
   routes = @(Get-NetRoute | ForEach-Object { ,@($_.DestinationPrefix, $_.NextHop, $_.InterfaceAlias, ($_.RouteMetric + $_.InterfaceMetric)) })
-  processes = @(Get-CimInstance Win32_Process -Property ProcessId, Name, CommandLine | ForEach-Object { ,@($_.ProcessId, $_.Name, $_.CommandLine) })
+  processes = @(Get-CimInstance Win32_Process -Property ProcessId, Name, CommandLine, ParentProcessId, CreationDate | ForEach-Object { ,@($_.ProcessId, $_.Name, $_.CommandLine, $_.ParentProcessId, $(if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 })) })
 } | ConvertTo-Json -Depth 5 -Compress
 `;
 
@@ -69,7 +69,8 @@ export interface WindowsData {
 		dns: string[];
 	}[];
 	routes?: [string, string, string, number][];
-	processes?: [number, string, string | null][];
+	/** pid, image name, command line, parent pid, start time (ms since the epoch, 0 unknown). */
+	processes?: [number, string, string | null, number?, number?][];
 }
 
 const TCP_STATES: Record<string, SocketState> = {
@@ -219,10 +220,16 @@ export function parseWindows(
 			),
 		);
 	const processes: Process[] = (data.processes ?? []).map(
-		([pid, image, cmd]) => {
+		([pid, image, cmd, ppid, started]) => {
 			const name = image.replace(/\.exe$/i, "");
 			// without an administrator terminal, other users' command lines are not given
-			return { pid, name, cmd: cmd?.trim() || name };
+			return {
+				pid,
+				name,
+				cmd: cmd?.trim() || name,
+				...(ppid && { ppid }),
+				...(started && { started }),
+			};
 		},
 	);
 	// the name servers of the interfaces that carry traffic

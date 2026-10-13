@@ -11,6 +11,15 @@ All notable changes to netbeagle. Versions follow [semantic versioning](https://
   machines (the last two are errors: they run code), dev servers as notes; a published container's
   fix is its `-p 127.0.0.1:…`. And ports two programs share, with which one `localhost` reaches over
   IPv4 and over IPv6. `--json`; exits 1 on errors.
+- `netbeagle watch`: every port live, with the git checkout and branch each server runs in (or its
+  directory), its uptime and clients; ports that open or close are marked. Select one for its command
+  line and what started it; `k` stops it (again: SIGKILL), `K` stops it with the `bun run dev`, `npm`
+  or watcher that started it, a container is `docker stop`ped; `/` filters.
+- `netbeagle kill PORT`: says which process listens on it, in which checkout, started by what, and asks
+  before stopping it. `--tree`, `--force`, `-y`.
+- `who` shows a server's git checkout and branch (or directory), what started it and since when.
+- Processes carry their parent, start time, working directory (Linux and macOS) and git checkout in
+  `--json`.
 - Homebrew (macOS and Linux) and Scoop (Windows):
   `brew install michelsalib/netbeagle/netbeagle`, or
   `scoop bucket add netbeagle https://github.com/michelsalib/scoop-netbeagle` then
@@ -18,6 +27,7 @@ All notable changes to netbeagle. Versions follow [semantic versioning](https://
 
 ### Fixed
 
+- On Linux, every process is read, not only those holding a socket: a server's parent too.
 - A local server on a port a container also publishes (postgres on 127.0.0.1:5432 beside a container
   on 0.0.0.0:5432) is its own listener, no longer counted as the container's.
 

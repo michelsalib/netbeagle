@@ -18,6 +18,12 @@ const OPTIONS: Record<string, [string, string]> = {
 		"--show-secrets",
 		"don't mask the values of --token=, --password and the like\nin command lines",
 	],
+	tree: [
+		"--tree",
+		"with what started it: bun run dev, npm, a watcher; never your shell",
+	],
+	force: ["--force", "kill at once (SIGKILL) instead of asking it to stop"],
+	yes: ["-y, --yes", "without asking"],
 	help: ["-h, --help", "show help: netbeagle COMMAND --help for one command"],
 	version: ["-v, --version", "show the version"],
 };
@@ -85,6 +91,31 @@ kernel's main routing table decides: this machine, a container, a network one of
 the interfaces is on, or a gateway; with the route and the source address.`,
 		options: ["json", "no-docker"],
 		examples: ["netbeagle route github.com", "netbeagle route 172.18.0.2"],
+	},
+	watch: {
+		usage: ["watch"],
+		summary:
+			"live: every port, which worktree's server holds it, stop it from there",
+		about: `Shows every listening port live, refreshed every couple of seconds, with the
+process behind it, the git checkout and branch it runs in (or its directory),
+how long it has been up and its clients; ports that just opened or closed are
+marked. Select one to see its command line, what started it (bun run dev, npm)
+and what stopping it would take. Keys: arrows to select, k to stop its process,
+K to stop it with what started it, / to filter (a branch, a port, a name), r to
+refresh, q to quit. A second k forces it (SIGKILL); a container is docker stopped.`,
+		options: ["no-docker", "show-secrets"],
+		examples: ["netbeagle watch", "sudo netbeagle watch"],
+	},
+	kill: {
+		usage: ["kill PORT"],
+		summary: "stop what listens on PORT, after saying which process that is",
+		about: `Stops what listens on PORT: says which process it is, the git checkout and
+branch it runs in and what started it, then asks. --tree also stops what started
+it (bun run dev, npm, a watcher such as nodemon, never your shell), so nothing
+starts it again. A container is docker stopped. Exits 1 when something still
+runs after 3 seconds: --force kills it at once.`,
+		options: ["tree", "force", "yes", "no-docker"],
+		examples: ["netbeagle kill 3000", "netbeagle kill 5173 --tree -y"],
 	},
 	doctor: {
 		usage: ["doctor"],

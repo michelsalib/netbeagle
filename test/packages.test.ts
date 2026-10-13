@@ -22,6 +22,9 @@ test("Homebrew, Scoop and winget files point at the release's binaries", () => {
 	expect(formula).toContain('version "1.2.3"');
 	expect(formula).toContain('chmod 0755, bin/"netbeagle"');
 	expect(formula).toContain("class Netbeagle < Formula");
+	expect(formula).toContain(
+		'generate_completions_from_executable(bin/"netbeagle", "completion"',
+	);
 
 	const scoop = JSON.parse(files["netbeagle.json"] ?? "{}");
 	expect(scoop.version).toBe("1.2.3");

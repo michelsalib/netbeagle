@@ -148,6 +148,19 @@ system (Linux and macOS, x64 and arm64). `install.ps1` does the same on Windows,
 `%LOCALAPPDATA%\Programs\netbeagle`: `netbeagle.mjs` and a `netbeagle.cmd` launcher, or `netbeagle.exe`.
 Neither edits your `PATH`: they print what to run.
 
+**Completion.** `install.sh` and Homebrew install bash and fish completion; for zsh and PowerShell, add
+`eval "$(netbeagle completion zsh)"` to `~/.zshrc` (after `compinit`), or
+`netbeagle completion powershell | Out-String | Invoke-Expression` to your PowerShell profile. It
+completes commands and their options, and for `who` and `kill` the ports listening right now, each with
+what holds it:
+
+```
+$ netbeagle kill <Tab>
+3000  -- node 4127  app-feature (feature-x)
+5173  -- node 4200  app (main)
+5432  -- container pg
+```
+
 **Updates.** Once a week netbeagle asks the npm registry, in the background, whether a newer version
 exists, and when there is one says so after a command, with the update command for how you installed it:
 `netbeagle upgrade` for `install.sh` and `install.ps1`, `brew upgrade netbeagle`, `scoop update netbeagle`,

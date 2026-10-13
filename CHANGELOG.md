@@ -2,6 +2,15 @@
 
 All notable changes to netbeagle. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- Shell completion for bash, zsh, fish and PowerShell (`netbeagle completion SHELL`): commands, each
+  command's options, and for `who` and `kill` the ports listening now, each with its process and the
+  checkout it runs in, or its container. `install.sh` and Homebrew install it for bash and fish;
+  `install.ps1` prints the line for your PowerShell profile.
+
 ## 0.4.0 (2026-10-13)
 
 ### Added

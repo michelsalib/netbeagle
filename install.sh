@@ -6,6 +6,7 @@
 # NETBEAGLE_VERSION      a version such as 0.2.1 (default: the latest release)
 # NETBEAGLE_BASE_URL     where netbeagle.js and SHA256SUMS are downloaded from: https://, or file:// (mirrors, tests)
 # NETBEAGLE_BINARY=1     install the standalone binary even when Node or Bun is there
+# NETBEAGLE_NO_COMPLETION=1  don't install shell completion
 #
 # netbeagle is one small JavaScript file that runs on Node >= 20 or Bun. Without either, install.sh
 # installs the standalone binary instead (Linux and macOS, x64 and arm64), which needs nothing.
@@ -109,6 +110,34 @@ mv -f "$dir/.netbeagle.new" "$dir/netbeagle"
 if [ "$runtime" = binary ]; then how="standalone binary"; else how="runs on $runtime"; fi
 say "installed netbeagle $("$dir/netbeagle" --version) in $dir ($how)"
 say "to see the processes of other users too: sudo $dir/netbeagle"
+
+# completion goes where shells load it by themselves; startup files are never edited
+if [ -z "${NETBEAGLE_NO_COMPLETION:-}" ]; then
+  data=${XDG_DATA_HOME:-$HOME/.local/share}
+  config=${XDG_CONFIG_HOME:-$HOME/.config}
+  mkdir -p "$data/bash-completion/completions"
+  "$dir/netbeagle" completion bash >"$data/bash-completion/completions/netbeagle"
+  bash_completion=
+  for f in /usr/share/bash-completion/bash_completion /etc/bash_completion \
+    /opt/homebrew/etc/profile.d/bash_completion.sh /usr/local/etc/profile.d/bash_completion.sh; do
+    if [ -r "$f" ]; then bash_completion=$f; break; fi
+  done
+  if [ -n "$bash_completion" ]; then
+    say "bash completion: installed (new shells)"
+  else
+    say "bash completion: bash-completion isn't installed; add this to ~/.bashrc instead:"
+    say "  eval \"\$(netbeagle completion bash)\""
+  fi
+  if command -v fish >/dev/null 2>&1; then
+    mkdir -p "$config/fish/completions"
+    "$dir/netbeagle" completion fish >"$config/fish/completions/netbeagle.fish"
+    say "fish completion: installed"
+  fi
+  if command -v zsh >/dev/null 2>&1; then
+    say "zsh completion: add this to ~/.zshrc, after compinit:"
+    say "  eval \"\$(netbeagle completion zsh)\""
+  fi
+fi
 
 case ":$PATH:" in
   *":$dir:"*) ;;

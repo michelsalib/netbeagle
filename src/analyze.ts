@@ -44,7 +44,7 @@ export interface Listener {
 	container?: Container;
 	published?: PublishedPort;
 	sockets: Socket[];
-	/** Established connections to it. */
+	/** Connections to it, open now: not those closing (TIME_WAIT…), which `conns --all` shows. */
 	clients: Connection[];
 }
 
@@ -65,6 +65,9 @@ export interface Connection {
 	/** "in" when a client connected to one of our listeners, "out" when we started it. */
 	direction: "in" | "out";
 	peer: Peer;
+	/** Docker's side of a published port: docker-proxy accepting a client on it, or its own
+	 * connection to the container for that client, not a connection of its own. */
+	relay?: { container: Container; published: PublishedPort };
 }
 
 export interface RouteResult {
@@ -283,7 +286,7 @@ export function listeners(snap: Snapshot): Listener[] {
 	const all = [...groups.values()];
 	for (const l of all) l.reach = reachOf(snap, l.addresses, l.sockets);
 	for (const c of connections(snap, all))
-		if (c.direction === "in")
+		if (c.direction === "in" && c.state === "ESTABLISHED")
 			listenerFor(all, c.proto, c.local)?.clients.push(c);
 	return all.sort((a, b) => a.port - b.port || a.proto.localeCompare(b.proto));
 }
@@ -303,16 +306,37 @@ export function connections(snap: Snapshot, known?: Listener[]): Connection[] {
 	const out: Connection[] = [];
 	for (const s of snap.sockets) {
 		if (isListening(s) || s.remote.port === 0) continue;
-		const direction = listenerFor(all, s.proto, s.local) ? "in" : "out";
+		const listener = listenerFor(all, s.proto, s.local);
+		const direction = listener ? "in" : "out";
+		const process = processOf(snap, s.pid);
+		const peer = peerOf(snap, all, s);
+		// docker-proxy (its process hidden without root): accepting on the port a container
+		// publishes, or forwarding to the container behind it
+		const docker = !process || DOCKER.test(process.name);
+		const into =
+			direction === "in" && docker && listener?.container && listener.published
+				? { container: listener.container, published: listener.published }
+				: undefined;
+		const published =
+			direction === "out" && peer.kind === "container" && docker
+				? peer.container.ports.find(
+						(p) => p.proto === s.proto && p.containerPort === s.remote.port,
+					)
+				: undefined;
 		out.push({
 			proto: s.proto,
 			local: s.local,
 			remote: s.remote,
 			state: s.state,
-			process: processOf(snap, s.pid),
+			process,
 			user: s.orphan ? undefined : userName(snap, s.uid),
 			direction,
-			peer: peerOf(snap, all, s),
+			peer,
+			...(into && { relay: into }),
+			...(published &&
+				peer.kind === "container" && {
+					relay: { container: peer.container, published },
+				}),
 		});
 	}
 	return out;
@@ -358,16 +382,27 @@ export interface WhoReport {
 	listeners: Listener[];
 	/** Connections from this machine to that port elsewhere. */
 	outbound: Connection[];
+	/** docker-proxy's connections to the container behind that port: one per client. */
+	relayed: Connection[];
 }
 
 export function who(snap: Snapshot, port: number): WhoReport {
+	const conns = connections(snap);
 	return {
 		port,
 		listeners: listeners(snap).filter((l) => l.port === port),
-		outbound: connections(snap).filter(
+		relayed: conns.filter(
+			(c) =>
+				c.direction === "out" &&
+				c.relay?.published.hostPort === port &&
+				c.state === "ESTABLISHED",
+		),
+		outbound: conns.filter(
 			(c) =>
 				c.direction === "out" &&
 				c.remote.port === port &&
+				// docker-proxy relaying a client of a published port: listed with that port's clients
+				!c.relay &&
 				// clients of our own listener are listed with it
 				!(c.peer.kind === "local" && c.peer.listener?.port === port),
 		),

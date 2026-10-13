@@ -7,6 +7,8 @@ import {
 	unowned,
 	who,
 } from "../src/analyze.ts";
+import { renderConnections, renderWho } from "../src/format.ts";
+import type { Socket } from "../src/model.ts";
 import { fixture, pg } from "./helpers.ts";
 
 const snap = fixture();
@@ -143,4 +145,64 @@ test("map: bound-everywhere apart, bridge ports folded, idle interfaces named", 
 test("sockets of other users without a process are counted", () => {
 	// sshd's 3, docker-proxy's 1, systemd-resolved's 1
 	expect(unowned(snap)).toBe(5);
+});
+
+test("docker-proxy's two sides of a client are that client, not connections of their own", () => {
+	const snap = fixture();
+	const sock = (
+		local: [string, number],
+		remote: [string, number],
+		owner: { pid?: number; uid: number },
+	): Socket => ({
+		proto: "tcp",
+		family: 4,
+		local: { address: local[0], port: local[1] },
+		remote: { address: remote[0], port: remote[1] },
+		state: "ESTABLISHED",
+		...owner,
+	});
+	snap.sockets.push(
+		// node 300 connects to pg's published port…
+		sock(["127.0.0.1", 51554], ["127.0.0.1", 5432], { pid: 300, uid: 1000 }),
+		// …docker-proxy (root, hidden) accepts it, and opens its own connection to the container
+		sock(["127.0.0.1", 5432], ["127.0.0.1", 51554], { uid: 0 }),
+		sock(["172.18.0.1", 40000], ["172.18.0.2", 5432], { uid: 0 }),
+	);
+	const r = who(snap, 5432);
+	expect(
+		r.listeners[0]?.clients.map(
+			(c) => c.peer.kind === "local" && c.peer.process?.name,
+		),
+	).toEqual(["node"]);
+	expect(r.outbound).toEqual([]);
+	expect(r.relayed.map((c) => `${c.remote.address}:${c.remote.port}`)).toEqual([
+		"172.18.0.2:5432",
+	]);
+	expect(renderWho(r, { color: false })).toContain(
+		"each relayed by docker-proxy to 172.18.0.2:5432 in pg (1 connection)",
+	);
+	const docker = connections(snap).filter((c) => c.relay);
+	expect(docker.map((c) => c.direction)).toEqual(["in", "out"]);
+	expect(renderConnections(docker, { color: false })).toStartWith(
+		"docker-proxy (root)  2 connections",
+	);
+});
+
+test("clients are connections open now, not closing ones", () => {
+	const snap = fixture();
+	const before = listeners(snap).find((l) => l.port === 5000)?.clients.length;
+	snap.sockets.push({
+		proto: "tcp",
+		family: 4,
+		local: { address: "127.0.0.1", port: 5000 },
+		remote: { address: "127.0.0.1", port: 50999 },
+		state: "TIME_WAIT",
+		uid: 0,
+		orphan: true,
+	});
+	expect(listeners(snap).find((l) => l.port === 5000)?.clients.length).toBe(
+		before,
+	);
+	// conns --all still shows it
+	expect(connections(snap).some((c) => c.remote.port === 50999)).toBe(true);
 });

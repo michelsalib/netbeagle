@@ -100,9 +100,12 @@ export const elevate = (o?: RenderOptions) =>
 const connOwner = (x: Connection) =>
 	x.process
 		? procLabel(x.process)
-		: x.user
-			? `${x.user}'s process`
-			: "closing, no process";
+		: // hidden without root, but what else relays a published port to its container
+			x.relay
+			? `docker-proxy (${x.user ?? "root"})`
+			: x.user
+				? `${x.user}'s process`
+				: "closing, no process";
 
 /** Who is behind a listener: its container, its process, or at least its user. */
 export function ownerLabel(l: Listener, o?: RenderOptions): string {
@@ -399,6 +402,18 @@ export function renderWho(
 			for (const x of l.clients)
 				kv.push(["", `← ${peerLabel(x.peer, endpoint(x.remote), o)}`]);
 		} else kv.push(["clients", c.dim("none right now")]);
+		// docker-proxy's side: one connection to the container for each client, not clients of their own
+		const relays = r.relayed.filter(
+			(x) => x.relay?.container.id === l.container?.id,
+		);
+		const to = relays[0];
+		if (to)
+			kv.push([
+				"",
+				c.dim(
+					`each relayed by docker-proxy to ${endpoint(to.remote)} in ${to.relay?.container.name} (${relays.length} connection${relays.length > 1 ? "s" : ""})`,
+				),
+			]);
 		for (const [k, v] of kv) out.push(`  ${c.dim(k.padEnd(10))} ${v}`);
 		out.push("");
 	}
@@ -585,6 +600,10 @@ export const connectionJson = (x: Connection) => ({
 	...x,
 	process: procJson(x.process),
 	peer: peerJson(x.peer),
+	relay: x.relay && {
+		container: x.relay.container.name,
+		hostPort: x.relay.published.hostPort,
+	},
 });
 
 export function renderDoctor(findings: Finding[], o: RenderOptions): string {

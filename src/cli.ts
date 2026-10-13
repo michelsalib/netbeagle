@@ -183,6 +183,7 @@ async function main(argv: string[]): Promise<number> {
 					port,
 					listeners: r.listeners.map(listenerJson),
 					outbound: r.outbound.map(connectionJson),
+					relayed: r.relayed.map(connectionJson),
 				}),
 			);
 			return r.listeners.length || r.outbound.length ? 0 : 1;

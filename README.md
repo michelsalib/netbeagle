@@ -148,18 +148,8 @@ system (Linux and macOS, x64 and arm64). `install.ps1` does the same on Windows,
 `%LOCALAPPDATA%\Programs\netbeagle`: `netbeagle.mjs` and a `netbeagle.cmd` launcher, or `netbeagle.exe`.
 Neither edits your `PATH`: they print what to run.
 
-**Completion.** `install.sh` and Homebrew install bash and fish completion; for zsh and PowerShell, add
-`eval "$(netbeagle completion zsh)"` to `~/.zshrc` (after `compinit`), or
-`netbeagle completion powershell | Out-String | Invoke-Expression` to your PowerShell profile. It
-completes commands and their options, and for `who` and `kill` the ports listening right now, each with
-what holds it:
-
-```
-$ netbeagle kill <Tab>
-3000  -- node 4127  app-feature (feature-x)
-5173  -- node 4200  app (main)
-5432  -- container pg
-```
+**Completion.** `install.sh` and Homebrew also install bash and fish completion; `install.ps1` prints the
+line for PowerShell. See [Shell completion](#shell-completion).
 
 **Updates.** Once a week netbeagle asks the npm registry, in the background, whether a newer version
 exists, and when there is one says so after a command, with the update command for how you installed it:
@@ -191,12 +181,40 @@ command lines only in an administrator terminal. netbeagle only reads: see
 | `netbeagle kill PORT` | stops what listens on `PORT`, after saying which process it is, in which checkout, started by what, and asking. `--tree` also stops what started it, `--force` kills at once, `-y` doesn't ask; a container is `docker stop`ped |
 | `netbeagle doctor` | what is wrong with how this machine listens, each with what is behind it and its fix: databases, caches, debuggers and the docker API reachable from other machines (dev servers too, as notes), and ports two programs share, with which one `localhost` reaches over IPv4 and over IPv6. Exits 1 on errors |
 | `netbeagle map` | the whole picture, interface by interface: what is open everywhere, what is bound to each interface, the containers behind each bridge, the connections leaving through each one, which local process talks to which, and the DNS servers |
+| `netbeagle completion bash\|zsh\|fish\|powershell` | a shell completion script (commands, options, the ports listening now) |
+| `netbeagle upgrade` | update an `install.sh` or `install.ps1` install; for others, prints the update command |
 
 `netbeagle COMMAND --help` (or `netbeagle help COMMAND`) shows one command's usage, options and examples.
 `if`, `ifaces`, `connections`, `graph` and `ls` are accepted too.
 
 Options: `--json`, `--tcp`, `--udp`, `-a, --all`, `--no-docker` (don't ask docker), `--show-secrets` (command
 lines are shown with the values of `--token=`, `--password` and the like masked by default).
+
+## Shell completion
+
+`install.sh` and Homebrew set up bash and fish completion for you. Otherwise:
+
+```sh
+eval "$(netbeagle completion bash)"                                 # in ~/.bashrc
+eval "$(netbeagle completion zsh)"                                  # in ~/.zshrc, after compinit
+netbeagle completion fish > ~/.config/fish/completions/netbeagle.fish
+```
+
+In PowerShell, add this line to your profile (`notepad $PROFILE`):
+
+```powershell
+netbeagle completion powershell | Out-String | Invoke-Expression
+```
+
+Completion is dynamic: on each <kbd>Tab</kbd> the script asks `netbeagle` for candidates, so `netbeagle kill <Tab>`
+and `netbeagle who <Tab>` offer the ports listening right now, each with what holds it:
+
+```
+$ netbeagle kill <Tab>
+3000  -- node 4127  app-feature (feature-x)
+5173  -- node 4200  app (main)
+5432  -- container pg
+```
 
 ## How it works
 

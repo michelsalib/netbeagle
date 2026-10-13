@@ -32,6 +32,8 @@ export interface State {
 	rows: Row[];
 	/** The selected row's key, kept across refreshes. */
 	selected?: string;
+	/** The first row shown: the list scrolls only when the selection leaves it. */
+	top: number;
 	/** Typing a filter, and the filter itself: matched against port, process, command and checkout. */
 	filtering: boolean;
 	filter: string;
@@ -60,6 +62,7 @@ export type Effect =
 
 export const initialState = (self = process.pid): State => ({
 	rows: [],
+	top: 0,
 	filtering: false,
 	filter: "",
 	signalled: [],

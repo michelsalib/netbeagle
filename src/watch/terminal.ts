@@ -15,7 +15,7 @@ import {
 	type Key,
 	type State,
 } from "./state.ts";
-import { render } from "./view.ts";
+import { render, scrolled, tableRoom } from "./view.ts";
 
 const ENTER = "\x1b[?1049h\x1b[?25l"; // alternate screen, hide cursor
 const LEAVE = "\x1b[?25h\x1b[?1049l";
@@ -52,6 +52,8 @@ export function runWatch(o: WatchOptions): Promise<void> {
 			// the last column left empty: some terminals wrap after a full-width line
 			const width = Math.max(20, (stdout.columns || 80) - 1);
 			const height = Math.max(8, stdout.rows || 24);
+			// the list scrolls only as far as the selection needs, and stays there
+			state = { ...state, top: scrolled(state, tableRoom(height)) };
 			const lines = render(state, width, height, {
 				color: o.color,
 				now: Date.now(),

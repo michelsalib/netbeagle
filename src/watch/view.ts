@@ -19,6 +19,28 @@ import {
 	visible,
 } from "./state.ts";
 
+/** Lines the selected port's details take, always: its title and up to 9 more. */
+export const DETAIL = 10;
+
+/** PORT ("udp 65535"), PROCESS, WHERE, UP, CLIENTS; the last column takes what is left. */
+const WIDTHS = [9, 20, 30, 4, 7];
+
+/** Rows the table shows: what the header, the details and the keys leave. */
+export const tableRoom = (height: number) => Math.max(3, height - 4 - DETAIL);
+
+/** The first row shown: where the list was scrolled to, moved only as far as the selection needs. */
+export function scrolled(s: State, room: number): number {
+	const rows = visible(s);
+	const at = Math.max(
+		0,
+		rows.findIndex((r) => r.key === selectedRow(s)?.key),
+	);
+	let top = Math.min(s.top, Math.max(0, rows.length - room));
+	if (at < top) top = at;
+	if (at >= top + room) top = at - room + 1;
+	return Math.max(0, top);
+}
+
 /** "45s", "12m", "3h", "2d": how long ago `t` was. */
 export function age(t: number | undefined, now: number): string {
 	if (t === undefined) return "";
@@ -108,12 +130,8 @@ export function render(
 		"CLIENTS",
 		"REACHABLE FROM",
 	];
-	const widths = titles.map((t, i) =>
-		Math.min(
-			i === 2 ? 36 : 24,
-			Math.max(t.length, ...cells.map((r) => (r[i] ?? "").length)),
-		),
-	);
+	// fixed widths: a longer name or "59s" turning "1m" never shifts the columns
+	const widths = WIDTHS;
 	const line = (cols: string[]) =>
 		cut(
 			cols
@@ -121,17 +139,13 @@ export function render(
 				.join("  "),
 			width - 2,
 		);
-	const detail = sel ? details(s, sel, width, o) : [];
-	const room = Math.max(3, height - 4 - detail.length);
+	// fixed places: the table always as tall, the details always as tall, so nothing moves as the
+	// selection or the filter changes
+	const detail = (sel ? details(s, sel, width, o) : []).slice(0, DETAIL);
+	while (detail.length < DETAIL) detail.push("");
+	const room = tableRoom(height);
 	out.push(`  ${c.dim(line(titles))}`);
-	const at = Math.max(
-		0,
-		rows.findIndex((r) => r.key === sel?.key),
-	);
-	const first = Math.min(
-		Math.max(0, at - Math.floor(room / 2)),
-		Math.max(0, rows.length - room),
-	);
+	const first = scrolled(s, room);
 	for (const [i, r] of rows.entries()) {
 		if (i < first || i >= first + room) continue;
 		const text = line(cells[i] ?? []);
@@ -150,6 +164,7 @@ export function render(
 				s.snap ? (s.filter ? "  nothing matches" : "  nothing listens") : "",
 			),
 		);
+	while (out.length < 2 + room) out.push("");
 	out.push("");
 	out.push(...detail);
 	while (out.length < height - 1) out.push("");

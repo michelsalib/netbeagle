@@ -11,7 +11,7 @@ import {
 	selectedRow,
 	visible,
 } from "../src/watch/state.ts";
-import { render } from "../src/watch/view.ts";
+import { render, scrolled, tableRoom } from "../src/watch/view.ts";
 import { fixture, pg } from "./helpers.ts";
 
 const base = fixture();
@@ -162,3 +162,36 @@ test.skipIf(!python || process.platform === "win32")(
 	},
 	60_000,
 );
+
+test("scrolling: the list moves only when the selection leaves it; nothing else moves", () => {
+	const many = base.sockets.concat(
+		Array.from({ length: 40 }, (_, i) => listen(6000 + i, 300)),
+	);
+	let s = applySnapshot(initialState(999), { ...base, sockets: many }, 0);
+	const height = 30;
+	const room = tableRoom(height);
+	const screen = () => {
+		s = { ...s, top: scrolled(s, room) };
+		return render(s, 100, height, { color: false, now: 0 });
+	};
+	const tops: number[] = [];
+	const detailAt = new Set<number>();
+	const heights = new Set<number>();
+	for (let i = 0; i < room + 3; i++) {
+		const lines = screen();
+		tops.push(s.top);
+		heights.add(lines.length);
+		// the details' title: the selected port's "tcp N" alone on its line
+		detailAt.add(lines.findIndex((l) => /^(tcp|udp) \d+( |$)/.test(l)));
+		[s] = keys(s, "down");
+	}
+	// still at the top while the selection is in view, then one row per step
+	expect(tops.slice(0, room)).toEqual(Array(room).fill(0));
+	expect(tops.slice(room)).toEqual([1, 2, 3]);
+	expect(detailAt.size).toBe(1);
+	expect(heights).toEqual(new Set([height]));
+	// back up: the list stays where it is until the selection reaches its top
+	[s] = keys(s, "up");
+	screen();
+	expect(s.top).toBe(3);
+});

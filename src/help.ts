@@ -117,6 +117,18 @@ runs after 3 seconds: --force kills it at once.`,
 		options: ["tree", "force", "yes", "no-docker"],
 		examples: ["netbeagle kill 3000", "netbeagle kill 5173 --tree -y"],
 	},
+	upgrade: {
+		usage: ["upgrade"],
+		summary: "update netbeagle to the latest release",
+		about: `Replaces this netbeagle with the latest release when it was installed with
+install.sh or install.ps1 (the script or the standalone binary); the download
+must match the release's SHA256SUMS and the npm package. Other installs get the
+command to run (npm, bun, Homebrew, Scoop…). Once a week netbeagle also asks npm,
+in the background, whether a newer version exists, and says so after a command;
+NETBEAGLE_NO_UPDATE_CHECK=1 turns that off.`,
+		options: [],
+		examples: ["netbeagle upgrade"],
+	},
 	doctor: {
 		usage: ["doctor"],
 		summary: "what is exposed that shouldn't be, and ports taken twice",

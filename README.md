@@ -148,6 +148,14 @@ system (Linux and macOS, x64 and arm64). `install.ps1` does the same on Windows,
 `%LOCALAPPDATA%\Programs\netbeagle`: `netbeagle.mjs` and a `netbeagle.cmd` launcher, or `netbeagle.exe`.
 Neither edits your `PATH`: they print what to run.
 
+**Updates.** Once a week netbeagle asks the npm registry, in the background, whether a newer version
+exists, and when there is one says so after a command, with the update command for how you installed it:
+`netbeagle upgrade` for `install.sh` and `install.ps1`, `brew upgrade netbeagle`, `scoop update netbeagle`,
+`npm install -g netbeagle@latest`, and so on. It stays quiet in scripts, CI, with `--json`, and with
+`NETBEAGLE_NO_UPDATE_CHECK=1`. `netbeagle upgrade` never runs anything it downloads: the new file must match
+the release's `SHA256SUMS` on GitHub and be the one published on npm (for a binary, the `SHA256SUMS` npm
+has), so a tampered release would have to be tampered with on both. Then it replaces itself in one rename.
+
 The binaries are release files too (`netbeagle-linux-x64`, `netbeagle-linux-arm64`, `netbeagle-darwin-x64`,
 `netbeagle-darwin-arm64`, `netbeagle-windows-x64.exe`), listed in `SHA256SUMS` and attested like the rest;
 see [SECURITY.md](SECURITY.md#verifying-a-release).

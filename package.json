@@ -28,7 +28,8 @@
 		"netbeagle": "dist/netbeagle.js"
 	},
 	"files": [
-		"dist/netbeagle.js"
+		"dist/netbeagle.js",
+		"dist/SHA256SUMS"
 	],
 	"engines": {
 		"node": ">=20"

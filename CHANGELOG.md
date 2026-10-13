@@ -2,6 +2,22 @@
 
 All notable changes to netbeagle. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- `netbeagle upgrade`: replaces an `install.sh` or `install.ps1` install (the script or the standalone
+  binary) with the latest release, checked against the release's `SHA256SUMS` and against npm; other
+  installs get their update command (`brew upgrade netbeagle`, `scoop update netbeagle`, npm…).
+- Once a week, a background check of the npm registry: a newer version is mentioned after a command,
+  with the update command for how netbeagle was installed. Never in scripts, CI or with `--json`;
+  `NETBEAGLE_NO_UPDATE_CHECK=1` turns it off.
+
+### Changed
+
+- The npm package carries the release's `SHA256SUMS`, which `netbeagle upgrade` checks a binary from
+  GitHub against.
+
 ## 0.3.0 (2026-10-13)
 
 ### Added

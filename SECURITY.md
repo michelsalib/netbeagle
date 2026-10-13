@@ -15,8 +15,12 @@ Only the latest release gets security fixes.
 
 These are worth knowing when you judge what counts as a vulnerability:
 
-- **It only reads.** It changes nothing: no file is written, no interface, route or firewall rule is
-  touched. What it reads:
+- **It reads, and stops only what you confirm.** No file is written, no interface, route or firewall
+  rule is touched. `netbeagle kill PORT` and the `k`/`K` keys of `netbeagle watch` signal processes
+  (SIGTERM, or SIGKILL when asked again) or run `docker stop`, only after naming each one and asking
+  (`kill -y` skips the question). Stopping with what started a server climbs only through package
+  runners (`npm`, `bun run`, a watcher, a `sh -c` they started), never into an interactive shell, an IDE,
+  another user's process or netbeagle itself. What it reads:
   - on Linux, `/proc` (sockets, and each process's open files and command line), `/sys/class/net` and
     `/etc/resolv.conf`;
   - on macOS, what `netstat`, `lsof`, `ifconfig`, `networksetup`, `ps` and `/etc/resolv.conf` print;

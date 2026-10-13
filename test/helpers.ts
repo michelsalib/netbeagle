@@ -53,7 +53,8 @@ export const macFixture = (containers: Container[] = []) =>
 				"netstat -an": "netstat-an.txt",
 				"netstat -rn": "netstat-rn.txt",
 				"lsof -nP -iTCP -iUDP -FpuftPn": "lsof.txt",
-				"ps -axo pid=,uid=,user=,comm=": "ps-comm.txt",
+				"ps -axo pid=,ppid=,uid=,user=,etime=,comm=": "ps.txt",
+				"lsof -a -d cwd -Fn -p 3000,3100,3200": "lsof-cwd.txt",
 				"ps -axww -o pid=,args=": "ps-args.txt",
 				"cat /etc/resolv.conf": "resolv.conf",
 			};

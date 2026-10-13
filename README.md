@@ -86,6 +86,28 @@ down, no address: docker0
 dns  127.0.0.53 (local resolver)
 ```
 
+### Dev servers in several worktrees
+
+Two checkouts of the same app, each running `bun run dev`, look the same to `ps`: `node …/vite`. netbeagle
+tells them apart by the git checkout and branch each runs in:
+
+```
+$ netbeagle who 5173
+tcp 5173  node 41207
+  process    node /home/me/src/app-feature/node_modules/.bin/vite  (pid 41207, me)
+  checkout   ~/src/app-feature  branch feature-x  (worktree)
+  started by bun 41190 ← zsh 40122
+  …
+$ netbeagle kill 5173 --tree
+tcp 5173  node 41207  app-feature (feature-x)  started by bun 41190
+         and bun 41190  app-feature (feature-x)  started by zsh 40122
+stop them? [y/N] y
+stopped 41190, 41207
+```
+
+`netbeagle watch` shows the same live, and stops the selected one with `k` (its process) or `K` (with the
+`bun run dev`, `npm` or watcher that started it, so nothing starts it again; never your shell).
+
 ## Install
 
 netbeagle is a single JavaScript file that runs on Node ≥ 20 or Bun, on Linux (WSL included), macOS and
@@ -144,6 +166,8 @@ command lines only in an administrator terminal. netbeagle only reads: see
 | `netbeagle conns` | every connection, grouped by process: inbound (←) to its ports and outbound (→), with the process, container or route at the other end. `--all` adds sockets opening or closing |
 | `netbeagle interfaces` | every interface: kind (ethernet, wifi, bridge, veth, tun, wireguard…), state, addresses, routes, bridge ports, docker containers on it, traffic |
 | `netbeagle route HOST` | where packets to `HOST` go: this machine, a container, an attached network, or a gateway; with the interface, the route and the source address |
+| `netbeagle watch` | live: every port with its process, the **git checkout and branch** it runs in (or its directory), how long it has been up and its clients, refreshed every couple of seconds; ports that open or close are marked. Select one to see its command line and what started it; `k` stops it, `K` stops it with what started it (`bun run dev`, `npm`, a watcher), `/` filters by branch, port or name |
+| `netbeagle kill PORT` | stops what listens on `PORT`, after saying which process it is, in which checkout, started by what, and asking. `--tree` also stops what started it, `--force` kills at once, `-y` doesn't ask; a container is `docker stop`ped |
 | `netbeagle doctor` | what is wrong with how this machine listens, each with what is behind it and its fix: databases, caches, debuggers and the docker API reachable from other machines (dev servers too, as notes), and ports two programs share, with which one `localhost` reaches over IPv4 and over IPv6. Exits 1 on errors |
 | `netbeagle map` | the whole picture, interface by interface: what is open everywhere, what is bound to each interface, the containers behind each bridge, the connections leaving through each one, which local process talks to which, and the DNS servers |
 

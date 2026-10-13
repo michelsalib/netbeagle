@@ -23,17 +23,27 @@ export function scanProcesses(proc: string): ProcessScan {
 	} catch {}
 	// lowest pid first, so a forked server's sockets go to the parent
 	pids.sort((a, b) => Number(a) - Number(b));
+	// boot time, in seconds since the epoch: processes' start times count from it
+	let boot = 0;
+	try {
+		const btime = readFileSync(join(proc, "stat"), "utf8").match(
+			/^btime (\d+)/m,
+		);
+		boot = Number(btime?.[1] ?? 0) * 1000;
+	} catch {}
 	for (const p of pids) {
 		const pid = Number(p);
 		const dir = join(proc, p);
 		let fds: string[];
+		// every process, socket or not: a server's parent (bun run dev) is one too. Its name, command
+		// line and parent can be read whoever it belongs to; its open files only with root, or if ours
+		processes.push(readProcess(dir, pid, boot));
 		try {
 			fds = readdirSync(join(dir, "fd"));
 		} catch {
 			hidden++;
 			continue;
 		}
-		let sockets = 0;
 		for (const fd of fds) {
 			let target: string;
 			try {
@@ -43,17 +53,14 @@ export function scanProcesses(proc: string): ProcessScan {
 			}
 			const m = target.match(/^socket:\[(\d+)\]$/);
 			if (!m) continue;
-			sockets++;
 			const inode = Number(m[1]);
 			if (!owners.has(inode)) owners.set(inode, pid);
 		}
-		if (sockets === 0) continue;
-		processes.push(readProcess(dir, pid));
 	}
 	return { processes, owners, hidden };
 }
 
-function readProcess(dir: string, pid: number): Process {
+function readProcess(dir: string, pid: number, boot: number): Process {
 	const text = (f: string) => {
 		try {
 			return readFileSync(join(dir, f), "utf8");
@@ -70,7 +77,25 @@ function readProcess(dir: string, pid: number): Process {
 		String(pid);
 	const cmd = argv.join(" ") || `[${name}]`;
 	const uid = Number(text("status").match(/^Uid:\s+(\d+)/m)?.[1] ?? -1);
-	return { pid, name, cmd, uid };
+	// after the name in parentheses, which may hold spaces: state, ppid, … starttime (the 22nd field)
+	const stat = text("stat");
+	const f = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+	const ppid = Number(f[1]);
+	const ticks = Number(f[19]);
+	let cwd: string | undefined;
+	try {
+		cwd = readlinkSync(join(dir, "cwd"));
+	} catch {}
+	return {
+		pid,
+		name,
+		cmd,
+		uid,
+		...(ppid > 0 && { ppid }),
+		// clock ticks after boot: 100 a second (USER_HZ) on every Linux
+		...(boot && ticks >= 0 && { started: boot + ticks * 10 }),
+		...(cwd && { cwd }),
+	};
 }
 
 /** User names by uid, from an /etc/passwd file. */

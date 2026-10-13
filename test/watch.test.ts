@@ -1,0 +1,162 @@
+import { expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import type { Snapshot, Socket } from "../src/model.ts";
+import {
+	applySnapshot,
+	handleKey,
+	initialState,
+	MARK_MS,
+	type State,
+	selectedRow,
+	visible,
+} from "../src/watch/state.ts";
+import { render } from "../src/watch/view.ts";
+import { fixture, pg } from "./helpers.ts";
+
+const base = fixture();
+const listen = (port: number, pid: number): Socket => ({
+	proto: "tcp",
+	family: 4,
+	local: { address: "127.0.0.1", port },
+	remote: { address: "0.0.0.0", port: 0 },
+	state: "LISTEN",
+	pid,
+	uid: 1000,
+});
+const withSocket = (snap: Snapshot, s: Socket): Snapshot => ({
+	...snap,
+	sockets: [...snap.sockets, s],
+});
+const keys = (s: State, ...ks: string[]) => {
+	let effect: ReturnType<typeof handleKey>[1];
+	for (const k of ks) {
+		const named = ["up", "down", "return", "escape", "backspace"].includes(k);
+		[s, effect] = handleKey(s, named ? { name: k } : { ch: k });
+	}
+	return [s, effect] as const;
+};
+const ports = (s: State) =>
+	visible(s).map((r) => `${r.listener.proto} ${r.listener.port}`);
+
+test("ports that open are marked, closed ones linger a while, then go", () => {
+	let s = applySnapshot(initialState(999), base, 0);
+	// the first snapshot marks nothing
+	expect(s.rows.every((r) => !r.appeared)).toBe(true);
+	s = applySnapshot(s, withSocket(base, listen(4100, 300)), 1000);
+	expect(s.rows.find((r) => r.listener.port === 4100)?.appeared).toBe(1000);
+	s = applySnapshot(s, base, 2000);
+	expect(s.rows.find((r) => r.listener.port === 4100)?.closed).toBe(2000);
+	s = applySnapshot(s, base, 2000 + MARK_MS);
+	expect(s.rows.find((r) => r.listener.port === 4100)).toBeUndefined();
+	expect(s.rows.every((r) => !r.appeared)).toBe(true);
+});
+
+test("the selection follows its row across refreshes; arrows move it; / filters", () => {
+	let s = applySnapshot(initialState(999), base, 0);
+	expect(ports(s)).toEqual([
+		"tcp 22",
+		"udp 53",
+		"tcp 5000",
+		"tcp 5432",
+		"tcp 8080",
+	]);
+	[s] = keys(s, "down", "down");
+	expect(selectedRow(s)?.listener.port).toBe(5000);
+	s = applySnapshot(s, withSocket(base, listen(1234, 300)), 1000);
+	expect(selectedRow(s)?.listener.port).toBe(5000);
+	[s] = keys(s, "/", "8", "0", "8", "return");
+	expect(ports(s)).toEqual(["tcp 8080"]);
+	expect(selectedRow(s)?.listener.port).toBe(8080);
+	[s] = keys(s, "escape");
+	expect(ports(s)).toHaveLength(6);
+});
+
+test("k asks before stopping the process; K takes what started it; a second k forces", () => {
+	let s = applySnapshot(initialState(999), base, 0);
+	[s] = keys(s, "/", "5000", "return");
+	let effect: ReturnType<typeof handleKey>[1];
+	[s, effect] = keys(s, "k");
+	expect(effect).toBeUndefined();
+	expect(s.confirm?.question).toBe("stop node 300?");
+	[s, effect] = keys(s, "y");
+	expect(effect).toEqual({ kind: "stop", pids: [300], force: false });
+	// still running at the next refresh: k again kills it
+	s = applySnapshot(s, base, 1000);
+	[s] = keys(s, "k");
+	expect(s.confirm?.question).toBe("force-stop (SIGKILL) node 300?");
+	[s, effect] = keys(s, "n");
+	expect(effect).toBeUndefined();
+	expect(s.message?.text).toBe("nothing stopped");
+	// node 300 was started by bun run dev 250, from zsh 240: K stops bun and node, never zsh
+	[s] = keys(s, "K");
+	expect(s.confirm?.pids).toEqual([250, 300]);
+});
+
+test("a container is docker stopped; another user's process can't be", () => {
+	let s = applySnapshot(initialState(999), fixture([pg]), 0);
+	[s] = keys(s, "/", "5432", "return", "k");
+	expect(s.confirm?.container).toBe("pg");
+	const [, effect] = keys(s, "y");
+	expect(effect).toEqual({ kind: "docker-stop", container: "pg" });
+	let t = applySnapshot(initialState(999), base, 0);
+	[t] = keys(t, "/", "tcp 22", "return", "k");
+	expect(t.confirm).toBeUndefined();
+	expect(t.message?.error).toBe(true);
+});
+
+test("the screen: where each server runs, and the selected one in detail", () => {
+	let s = applySnapshot(initialState(999), base, 0);
+	[s] = keys(s, "/", "8080", "return");
+	const text = render(s, 100, 24, {
+		color: false,
+		now: 61_000 + 1760000000000,
+		home: "/home/me",
+	}).join("\n");
+	expect(text).toMatch(/tcp 8080 +node 300 +~\/src\/app-feature +\d+s/);
+	expect(text).toContain("started by bun 250 ← zsh 240");
+	expect(text).toContain("K stops    bun 250, node 300");
+	expect(text).toContain("↑↓ select  k stop");
+});
+
+// a real terminal: the built CLI in a pseudo-terminal (Python's pty, not on Windows)
+const python = spawnSync("python3", ["--version"]).status === 0;
+test.skipIf(!python || process.platform === "win32")(
+	"netbeagle watch runs in a terminal and quits on q",
+	() => {
+		const root = join(import.meta.dir, "..");
+		const build = spawnSync("bun", ["run", "build"], {
+			cwd: root,
+			encoding: "utf8",
+		});
+		expect(build.status).toBe(0);
+		const steps = [
+			["wait", "netbeagle watch"],
+			["wait", "PORT"],
+			["send", "q"],
+		];
+		const r = spawnSync(
+			"python3",
+			[
+				"-I",
+				"scripts/pty.py",
+				"100",
+				"30",
+				JSON.stringify(steps),
+				"node",
+				"dist/netbeagle.js",
+				"watch",
+				"--no-docker",
+			],
+			{ cwd: root, encoding: "utf8", timeout: 60_000 },
+		);
+		expect(r.status, r.stderr).toBe(0);
+		const screen = (JSON.parse(r.stdout) as [number, string][])
+			.map(([, t]) => t)
+			.join("");
+		expect(screen).toContain("\x1b[?1049h");
+		// the alternate screen left, the cursor shown again
+		expect(screen).toEndWith("\x1b[?25h\x1b[?1049l");
+	},
+	60_000,
+);

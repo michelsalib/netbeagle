@@ -7,7 +7,8 @@
 
     sshd (root, hidden)  listens on 0.0.0.0:22 and :::22; one client, 192.168.1.50, over IPv6-mapped IPv4
     docker-proxy (root)  listens on 0.0.0.0:5432 for pg
-    node 300             listens on 127.0.0.1:5000 and 192.168.1.10:8080; curl 400 is its client
+    node 300             listens on 127.0.0.1:5000 and 192.168.1.10:8080; curl 400 is its client;
+                         started by bun run dev (250), itself started from zsh (240), in ~/src/app-feature
     curl 400             also talks to 140.82.121.4:443
     systemd-resolved     udp 127.0.0.53:53
 """
@@ -72,8 +73,12 @@ w("proc/net/ipv6_route",
   "ff000000000000000000000000000000 08 00000000000000000000000000000000 00 00000000000000000000000000000000 00000100 00000001 00000000 00000001     eth0\n")
 w("proc/sys/kernel/osrelease", "6.8.0-generic\n")
 
-def proc(pid, comm, argv, uid, sockets):
+def proc(pid, comm, argv, uid, sockets, ppid=1, start=0, cwd=None):
     w("proc/%d/comm" % pid, comm + "\n")
+    # state, ppid, then 16 fields netbeagle skips, then starttime in clock ticks after boot
+    w("proc/%d/stat" % pid, "%d (%s) S %d %s %d %s\n" % (pid, comm, ppid, " ".join(["0"] * 17), start, " ".join(["0"] * 30)))
+    if cwd:
+        os.symlink(cwd, os.path.join(root, "proc/%d/cwd" % pid))
     w("proc/%d/cmdline" % pid, "\0".join(argv) + "\0")
     w("proc/%d/status" % pid, "Name:\t%s\nUid:\t%d\t%d\t%d\t%d\n" % (comm, uid, uid, uid, uid))
     os.makedirs(os.path.join(root, "proc/%d/fd" % pid), exist_ok=True)
@@ -81,9 +86,13 @@ def proc(pid, comm, argv, uid, sockets):
     for n, inode in enumerate(sockets, start=3):
         os.symlink("socket:[%d]" % inode, os.path.join(root, "proc/%d/fd/%d" % (pid, n)))
 
-# a node that renamed its main thread, as runtimes do
-proc(300, "MainThread", ["/usr/bin/node", "server.js", "--token=s3cret"], 1000, [200, 201, 204])
-proc(400, "curl", ["curl", "http://127.0.0.1:5000/", "https://github.com/"], 1000, [202, 203])
+# booted at 1760000000 (2025-10-09); start times are in 1/100 s after it
+w("proc/stat", "cpu  0 0 0 0\nbtime 1760000000\n")
+proc(240, "zsh", ["-zsh"], 1000, [], start=100, cwd="/home/me")
+proc(250, "bun", ["bun", "run", "dev"], 1000, [], ppid=240, start=6000, cwd="/home/me/src/app-feature")
+# a node that renamed its main thread, as runtimes do; started a minute after boot by bun run dev
+proc(300, "MainThread", ["/usr/bin/node", "server.js", "--token=s3cret"], 1000, [200, 201, 204], ppid=250, start=6050, cwd="/home/me/src/app-feature")
+proc(400, "curl", ["curl", "http://127.0.0.1:5000/", "https://github.com/"], 1000, [202, 203], ppid=240, start=9000, cwd="/home/me")
 
 def iface(name, index, typ, operstate, mac, mtu, devtype=None, device=False, master=None, brif=()):
     d = "sys/class/net/%s/" % name

@@ -121,6 +121,17 @@ export function parseLsof(text: string): LsofSocket[] {
 	return out;
 }
 
+/** Working directories by pid, from `lsof -a -d cwd -Fn -p PIDS`. */
+export function parseLsofCwd(text: string): Map<number, string> {
+	const out = new Map<number, string>();
+	let pid = 0;
+	for (const line of text.split("\n")) {
+		if (line[0] === "p") pid = Number(line.slice(1));
+		else if (line[0] === "n" && pid) out.set(pid, line.slice(1));
+	}
+	return out;
+}
+
 const key = (
 	proto: Proto,
 	l: { address: string; port: number },
@@ -144,10 +155,20 @@ export function owners(sockets: Socket[], files: LsofSocket[]): Socket[] {
 	});
 }
 
-/** `ps -axo pid=,uid=,user=,comm=` and `ps -axww -o pid=,args=`. */
+/** "1-02:03:04", "02:03:04", "03:04": how long ago a process started, as ps's etime says, in ms. */
+export function elapsed(etime: string): number {
+	const [days, clock = ""] = etime.includes("-")
+		? etime.split("-")
+		: ["0", etime];
+	const [s = 0, m = 0, h = 0] = clock.split(":").map(Number).reverse();
+	return (((Number(days) * 24 + h) * 60 + m) * 60 + s) * 1000;
+}
+
+/** `ps -axo pid=,ppid=,uid=,user=,etime=,comm=` and `ps -axww -o pid=,args=`; `now` for start times. */
 export function parsePs(
 	names: string,
 	args: string,
+	now = Date.now(),
 ): { processes: Process[]; users: Record<number, string> } {
 	const cmds = new Map<number, string>();
 	for (const line of args.split("\n")) {
@@ -157,13 +178,23 @@ export function parsePs(
 	const processes: Process[] = [];
 	const users: Record<number, string> = {};
 	for (const line of names.split("\n")) {
-		const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/);
-		if (!m?.[1] || !m[2] || !m[3] || !m[4]) continue;
+		const m = line.match(
+			/^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+([\d:-]+)\s+(.*)$/,
+		);
+		if (!m?.[1] || !m[2] || !m[3] || !m[4] || !m[5] || !m[6]) continue;
 		const pid = Number(m[1]);
-		const uid = Number(m[2]);
-		users[uid] = m[3];
-		const name = basename(m[4].trim());
-		processes.push({ pid, name, cmd: cmds.get(pid) || name, uid });
+		const ppid = Number(m[2]);
+		const uid = Number(m[3]);
+		users[uid] = m[4];
+		const name = basename(m[6].trim());
+		processes.push({
+			pid,
+			name,
+			cmd: cmds.get(pid) || name,
+			uid,
+			...(ppid > 0 && { ppid }),
+			started: now - elapsed(m[5]),
+		});
 	}
 	return { processes, users };
 }
@@ -323,9 +354,24 @@ export function collectDarwin(
 		parseLsof(run("lsof", ["-nP", "-iTCP", "-iUDP", "-FpuftPn"])),
 	);
 	const { processes, users } = parsePs(
-		run("ps", ["-axo", "pid=,uid=,user=,comm="]),
+		run("ps", ["-axo", "pid=,ppid=,uid=,user=,etime=,comm="]),
 		run("ps", ["-axww", "-o", "pid=,args="]),
 	);
+	// the working directories of the servers: one lsof for them all (without root, ours only)
+	const servers = [
+		...new Set(
+			sockets.filter((s) => s.state === "LISTEN" && s.pid).map((s) => s.pid),
+		),
+	].sort((a, b) => (a ?? 0) - (b ?? 0));
+	if (servers.length) {
+		const cwds = parseLsofCwd(
+			run("lsof", ["-a", "-d", "cwd", "-Fn", "-p", servers.join(",")]),
+		);
+		for (const p of processes) {
+			const cwd = cwds.get(p.pid);
+			if (cwd) p.cwd = cwd;
+		}
+	}
 	return {
 		environment: "macos",
 		interfaces,

@@ -95,6 +95,23 @@ export interface Process {
 	/** The full command line, arguments joined by spaces. */
 	cmd: string;
 	uid?: number;
+	/** Its parent: `bun run dev` for the vite it started. */
+	ppid?: number;
+	/** When it started, in milliseconds since the epoch. */
+	started?: number;
+	/** Its working directory; unknown on Windows, and for other users' processes without root. */
+	cwd?: string;
+	/** The git checkout its working directory is in. */
+	git?: GitCheckout;
+}
+
+export interface GitCheckout {
+	/** The checkout's top directory. */
+	root: string;
+	/** The branch checked out; undefined when HEAD is detached. */
+	branch?: string;
+	/** A linked worktree (git worktree add), not the main checkout. */
+	worktree: boolean;
 }
 
 export interface ContainerNetwork {

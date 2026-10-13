@@ -46,8 +46,10 @@
     [4, "System", null],
     [1000, "svchost.exe", "C:\\Windows\\system32\\svchost.exe -k RPCSS -p"],
     [1500, "svchost.exe", null],
-    [2000, "postgres.exe", "\"C:\\Program Files\\PostgreSQL\\18\\bin\\postgres.exe\" -D data"],
-    [3000, "node.exe", "node server.js --token=s3cret "],
-    [4000, "curl.exe", "curl https://github.com/"]
+    [2000, "postgres.exe", "\"C:\\Program Files\\PostgreSQL\\18\\bin\\postgres.exe\" -D data", 1, 1760000000000],
+    [2800, "pwsh.exe", "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\"", 1, 1760000400000],
+    [2900, "bun.exe", "bun run dev", 2800, 1760000500000],
+    [3000, "node.exe", "node server.js --token=s3cret ", 2900, 1760000600000],
+    [4000, "curl.exe", "curl https://github.com/", 2800, 1760000700000]
   ]
 }

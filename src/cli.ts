@@ -12,6 +12,7 @@ import {
 	who,
 } from "./analyze.ts";
 import { collect } from "./collect.ts";
+import { doctor } from "./doctor.ts";
 import {
 	connectionJson,
 	elevate,
@@ -21,6 +22,7 @@ import {
 	paint,
 	type RenderOptions,
 	renderConnections,
+	renderDoctor,
 	renderInterfaces,
 	renderList,
 	renderMap,
@@ -199,6 +201,15 @@ async function main(argv: string[]): Promise<number> {
 				() => ({ host, ...routeJson(r) }),
 			);
 			return r.kind === "unreachable" ? 1 : 0;
+		}
+		case "doctor": {
+			const findings = doctor(snap);
+			print(
+				() => renderDoctor(findings, opts),
+				() => findings,
+			);
+			hiddenNote();
+			return findings.some((f) => f.severity === "error") ? 1 : 0;
 		}
 		case "map": {
 			const m = map(snap);

@@ -176,28 +176,35 @@ function reachOf(
 	return { scope: "interfaces", interfaces: [...names] };
 }
 
+/** The programs that hold a published port for docker: docker-proxy, Docker Desktop's, podman's. */
+const DOCKER =
+	/docker|vpnkit|wslrelay|rootless|slirp4netns|gvproxy|containerd/i;
+
 const publishes = (
 	p: PublishedPort,
 	proto: Proto,
 	port: number,
 	address?: string,
+	strict = false,
 ) =>
 	p.proto === proto &&
 	p.hostPort === port &&
 	(address === undefined ||
-		isWildcard(p.hostIp) ||
-		isWildcard(address) ||
-		p.hostIp === address);
+		p.hostIp === address ||
+		(strict
+			? isWildcard(p.hostIp) && isWildcard(address)
+			: isWildcard(p.hostIp) || isWildcard(address)));
 
 function publisherOf(
 	snap: Snapshot,
 	proto: Proto,
 	port: number,
 	address?: string,
+	strict = false,
 ) {
 	for (const c of snap.containers)
 		for (const p of c.ports)
-			if (publishes(p, proto, port, address))
+			if (publishes(p, proto, port, address, strict))
 				return { container: c, published: p };
 	return undefined;
 }
@@ -209,8 +216,16 @@ const isListening = (s: Socket) =>
 export function listeners(snap: Snapshot): Listener[] {
 	const groups = new Map<string, Listener>();
 	for (const s of snap.sockets.filter(isListening)) {
-		const pub = publisherOf(snap, s.proto, s.local.port, s.local.address);
-		// docker-proxy's sockets belong to its container; with sudo, docker-proxy itself is the process
+		const proc = processOf(snap, s.pid);
+		// docker-proxy's sockets belong to its container (with sudo, docker-proxy itself is the
+		// process), and so do Docker Desktop's; another program's never do, nor, when its program is
+		// hidden, a socket on another address than the published one: a local server on 127.0.0.1
+		// beside a container published on 0.0.0.0
+		const pub = proc
+			? DOCKER.test(proc.name)
+				? publisherOf(snap, s.proto, s.local.port, s.local.address)
+				: undefined
+			: publisherOf(snap, s.proto, s.local.port, s.local.address, true);
 		const owner = pub
 			? `c${pub.container.id}`
 			: s.pid !== undefined

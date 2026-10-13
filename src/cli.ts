@@ -15,6 +15,13 @@ import {
 	who,
 } from "./analyze.ts";
 import { collect } from "./collect.ts";
+import {
+	type CompletionShell,
+	complete,
+	completionScript,
+	type PortCandidate,
+	SHELLS,
+} from "./completion.ts";
 import { doctor } from "./doctor.ts";
 import {
 	connectionJson,
@@ -23,6 +30,8 @@ import {
 	listenerJson,
 	mapJson,
 	paint,
+	place,
+	procLabel,
 	type RenderOptions,
 	renderConnections,
 	renderDoctor,
@@ -68,6 +77,17 @@ function usage(message: string): number {
 let notice: string | undefined;
 
 async function main(argv: string[]): Promise<number> {
+	// hidden, called by the completion scripts on every <Tab>
+	if (argv[0] === "__complete") {
+		for (const c of complete(argv.slice(1), portCandidates)) console.log(c);
+		return 0;
+	}
+	// the PowerShell script's form: "_" + the word being typed, then the words before it
+	if (argv[0] === "__complete-powershell") {
+		const words = [...argv.slice(2), (argv[1] ?? "_").slice(1)];
+		for (const c of complete(words, portCandidates)) console.log(c);
+		return 0;
+	}
 	// hidden, started in the background by updateNotice
 	if (argv[0] === "__update-check") {
 		await fetchLatest(argv[1] ?? stateFile());
@@ -155,6 +175,13 @@ async function main(argv: string[]): Promise<number> {
 	)
 		notice = updateNotice(pkg.version, selfPath(), stateFile());
 	if (command === "upgrade") return upgrade();
+	if (command === "completion") {
+		const shell = args[0];
+		if (!SHELLS.includes(shell as CompletionShell))
+			return usage(`completion takes one of: ${SHELLS.join(", ")}`);
+		process.stdout.write(completionScript(shell as CompletionShell));
+		return 0;
+	}
 
 	const tty = process.stdout.isTTY;
 	if (command === "watch") {
@@ -298,6 +325,25 @@ async function main(argv: string[]): Promise<number> {
 		}
 	}
 	return usage(`no command '${given}'`);
+}
+
+/** The ports listening now, for `who` and `kill` completion: what holds each, and where it runs. */
+function portCandidates(): PortCandidate[] {
+	const home = homedir();
+	const by = new Map<number, string>();
+	for (const l of listeners(collect()))
+		if (!by.has(l.port))
+			by.set(
+				l.port,
+				l.container
+					? `container ${l.container.name}`
+					: l.process
+						? `${procLabel(l.process)}  ${place(l.process, home)}`
+						: `${l.user ?? "another user"}'s process`,
+			);
+	return [...by]
+		.sort((a, b) => a[0] - b[0])
+		.map(([port, about]) => ({ port, about }));
 }
 
 /**

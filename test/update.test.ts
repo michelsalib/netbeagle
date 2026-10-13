@@ -408,7 +408,7 @@ describe.skipIf(process.platform === "win32")(
 			copyFileSync(join(root, "install.sh"), join(release, "install.sh"));
 		});
 
-		test("installs, then upgrades in place", () => {
+		test("installs with completion, then upgrades in place", () => {
 			const home = mkdtempSync(join(tmpdir(), "netbeagle-bin-"));
 			const dir = join(home, "bin");
 			const r = run("sh", [join(root, "install.sh")], {
@@ -429,6 +429,25 @@ describe.skipIf(process.platform === "win32")(
 			expect(run(join(dir, "netbeagle"), ["--version"]).stdout.trim()).toBe(
 				pkg.version,
 			);
+			expect(
+				readFileSync(
+					join(
+						home,
+						".local",
+						"share",
+						"bash-completion",
+						"completions",
+						"netbeagle",
+					),
+					"utf8",
+				),
+			).toContain("netbeagle __complete");
+			expect(r.stdout).toContain("bash completion:");
+			expect(
+				existsSync(
+					join(home, ".config", "fish", "completions", "netbeagle.fish"),
+				),
+			).toBe(spawnSync("sh", ["-c", "command -v fish"]).status === 0);
 
 			// upgrade replaces the file in place, checked against SHA256SUMS and npm
 			const built = readFileSync(join(release, "netbeagle.js"));
@@ -607,7 +626,7 @@ describe.skipIf(process.platform !== "win32")(
 			copyFileSync(join(root, "install.ps1"), join(release, "install.ps1"));
 		});
 
-		test("installs, then upgrades in place", () => {
+		test("installs with completion, then upgrades in place", () => {
 			const dir = join(mkdtempSync(join(tmpdir(), "netbeagle-bin-")), "bin");
 			const r = install({
 				NETBEAGLE_BASE_URL: base,

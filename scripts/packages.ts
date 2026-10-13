@@ -61,12 +61,15 @@ ${bin("netbeagle-linux-x64")}
     bin.install Dir["netbeagle-*"].first => "netbeagle"
     # a release file, downloaded as is: not executable yet
     chmod 0755, bin/"netbeagle"
+    # zsh's completion is meant for eval in ~/.zshrc, not for fpath
+    generate_completions_from_executable(bin/"netbeagle", "completion", shells: [:bash, :fish])
   end
 
   test do
     assert_equal version.to_s, shell_output("#{bin}/netbeagle --version").strip
     # reads the machine, asks no one: fine in brew's sandbox
     assert_match '"kind": "loopback"', shell_output("#{bin}/netbeagle route 127.0.0.1 --json --no-docker")
+    assert_match "netbeagle __complete", shell_output("#{bin}/netbeagle completion bash")
   end
 end
 `;

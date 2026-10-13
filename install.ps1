@@ -93,6 +93,8 @@ $installed = & $exe --version
 $how = if ($runtime -eq 'binary') { 'standalone binary' } else { "runs on $runtime" }
 Write-Output "installed netbeagle $installed in $dir ($how)"
 Write-Output "to see the command lines of other users' processes too: run it from an administrator terminal"
+Write-Output 'PowerShell completion: add this line to your profile (notepad $PROFILE):'
+Write-Output '  netbeagle completion powershell | Out-String | Invoke-Expression'
 
 $inPath = ($env:Path -split ';' | Where-Object { $_.TrimEnd('\') -eq $dir.TrimEnd('\') }).Count -gt 0
 if (-not $inPath) {

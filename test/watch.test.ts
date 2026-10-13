@@ -108,12 +108,14 @@ test("a container is docker stopped; another user's process can't be", () => {
 test("the screen: where each server runs, and the selected one in detail", () => {
 	let s = applySnapshot(initialState(999), base, 0);
 	[s] = keys(s, "/", "8080", "return");
+	// the fixture's home, as this system reads the link: \\home\\me on Windows
+	const home = base.processes.find((p) => p.pid === 240)?.cwd;
 	const text = render(s, 100, 24, {
 		color: false,
 		now: 61_000 + 1760000000000,
-		home: "/home/me",
+		home,
 	}).join("\n");
-	expect(text).toMatch(/tcp 8080 +node 300 +~\/src\/app-feature +\d+s/);
+	expect(text).toMatch(/tcp 8080 +node 300 +~[\\/]src[\\/]app-feature +\d+s/);
 	expect(text).toContain("started by bun 250 ← zsh 240");
 	expect(text).toContain("K stops    bun 250, node 300");
 	expect(text).toContain("↑↓ select  k stop");

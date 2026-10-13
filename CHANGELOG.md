@@ -27,6 +27,11 @@ All notable changes to netbeagle. Versions follow [semantic versioning](https://
 
 ### Fixed
 
+- A port's clients are the connections open now: not those closing (TIME_WAIT, CLOSE_WAIT), which
+  counted for up to a minute after a burst of requests. `conns --all` still shows them.
+- A client of a container's published port is one client: docker-proxy's connection to the
+  container on its behalf is shown with it ("each relayed by docker-proxy to 172.18.0.3:6379"), no
+  longer as a connection to that port elsewhere, and `conns` names docker-proxy even without root.
 - On Linux, every process is read, not only those holding a socket: a server's parent too.
 - A local server on a port a container also publishes (postgres on 127.0.0.1:5432 beside a container
   on 0.0.0.0:5432) is its own listener, no longer counted as the container's.

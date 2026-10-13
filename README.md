@@ -27,6 +27,25 @@ docker which container sits behind each published port.
 npx netbeagle             # every listening port
 npx netbeagle map         # how everything connects
 npx netbeagle who 5432    # what is on 5432
+npx netbeagle doctor      # what is exposed that shouldn't be
+```
+
+```
+$ netbeagle doctor
+! PostgreSQL on tcp 5432 is reachable from every interface
+  container pg, bound to 0.0.0.0, ::
+  any machine that can reach eth0 can try passwords, or log in where pg_hba.conf trusts, unless a firewall stops it
+  fix: publish it on this machine only: -p 127.0.0.1:5432:5432 (in compose: "127.0.0.1:5432:5432")
+
+! localhost:3000 reaches node 812 over IPv4 and bun 977 over IPv6
+  node 812 on 127.0.0.1
+  bun 977 on ::1
+  localhost over IPv4 (127.0.0.1:3000) → node 812
+  localhost over IPv6 ([::1]:3000) → bun 977
+  other machines → nobody
+  fix: a client may pick either (browsers and node try IPv6 first, many others IPv4): stop one, or move it to another port
+
+2 warnings
 ```
 
 ```
@@ -125,6 +144,7 @@ command lines only in an administrator terminal. netbeagle only reads: see
 | `netbeagle conns` | every connection, grouped by process: inbound (←) to its ports and outbound (→), with the process, container or route at the other end. `--all` adds sockets opening or closing |
 | `netbeagle interfaces` | every interface: kind (ethernet, wifi, bridge, veth, tun, wireguard…), state, addresses, routes, bridge ports, docker containers on it, traffic |
 | `netbeagle route HOST` | where packets to `HOST` go: this machine, a container, an attached network, or a gateway; with the interface, the route and the source address |
+| `netbeagle doctor` | what is wrong with how this machine listens, each with what is behind it and its fix: databases, caches, debuggers and the docker API reachable from other machines (dev servers too, as notes), and ports two programs share, with which one `localhost` reaches over IPv4 and over IPv6. Exits 1 on errors |
 | `netbeagle map` | the whole picture, interface by interface: what is open everywhere, what is bound to each interface, the containers behind each bridge, the connections leaving through each one, which local process talks to which, and the DNS servers |
 
 `netbeagle COMMAND --help` (or `netbeagle help COMMAND`) shows one command's usage, options and examples.
@@ -172,9 +192,9 @@ Each system is read its own way, into the same picture, so every command works t
 
 ## Status
 
-Linux (WSL included), macOS and Windows. Planned: `netbeagle doctor` (services exposed on every
-interface, ports bound twice, DNS servers with no route), firewall rules, network namespaces (inside
-containers).
+Linux (WSL included), macOS and Windows. Planned: more `netbeagle doctor` checks (no default route or
+two of them, a VPN taking all traffic, DNS servers with no route), firewall rules, network namespaces
+(inside containers).
 
 ## The pack
 

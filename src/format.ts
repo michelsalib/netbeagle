@@ -7,6 +7,7 @@ import type {
 	RouteResult,
 	WhoReport,
 } from "./analyze.ts";
+import type { Finding } from "./doctor.ts";
 import type { Container, Iface, Process, Route } from "./model.ts";
 import { endpoint, isWildcard } from "./net.ts";
 
@@ -550,6 +551,29 @@ export const connectionJson = (x: Connection) => ({
 	process: procJson(x.process),
 	peer: peerJson(x.peer),
 });
+
+export function renderDoctor(findings: Finding[], o: RenderOptions): string {
+	const c = paint(o);
+	if (!findings.length) return c.green("✓ no problems found");
+	const mark = { error: c.red("✗"), warning: c.yellow("!"), info: c.cyan("·") };
+	const blocks = findings.map((f) =>
+		[
+			`${mark[f.severity]} ${f.title}`,
+			...f.details.map((d) => c.dim(`  ${d}`)),
+			`  ${c.dim("fix:")} ${f.fix}`,
+		].join("\n"),
+	);
+	const n = (severity: Finding["severity"], word: string) => {
+		const k = findings.filter((f) => f.severity === severity).length;
+		return k ? [`${k} ${word}${k === 1 ? "" : "s"}`] : [];
+	};
+	const summary = [
+		...n("error", "error"),
+		...n("warning", "warning"),
+		...n("info", "note"),
+	].join(", ");
+	return `${blocks.join("\n\n")}\n\n${c.bold(summary)}`;
+}
 
 export const listenerJson = (l: Listener) => ({
 	proto: l.proto,

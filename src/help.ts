@@ -86,6 +86,17 @@ the interfaces is on, or a gateway; with the route and the source address.`,
 		options: ["json", "no-docker"],
 		examples: ["netbeagle route github.com", "netbeagle route 172.18.0.2"],
 	},
+	doctor: {
+		usage: ["doctor"],
+		summary: "what is exposed that shouldn't be, and ports taken twice",
+		about: `Lists what is wrong with how this machine listens, each with what is behind it
+and how to fix it: databases, caches, debuggers and the like reachable from
+other machines (dev servers too, as notes), and ports held by two programs, with
+which one localhost reaches over IPv4 and over IPv6. Firewall rules are not taken
+into account. Exits 1 when there are errors.`,
+		options: ["json", "no-docker"],
+		examples: ["netbeagle doctor", "sudo netbeagle doctor --json"],
+	},
 	map: {
 		usage: ["map"],
 		summary: "how everything connects, interface by interface",

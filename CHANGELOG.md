@@ -6,10 +6,20 @@ All notable changes to netbeagle. Versions follow [semantic versioning](https://
 
 ### Added
 
+- `netbeagle doctor`: what is wrong with how this machine listens, each with what is behind it and
+  its fix. Databases, caches, Jupyter, the Node.js inspector and the docker API reachable from other
+  machines (the last two are errors: they run code), dev servers as notes; a published container's
+  fix is its `-p 127.0.0.1:…`. And ports two programs share, with which one `localhost` reaches over
+  IPv4 and over IPv6. `--json`; exits 1 on errors.
 - Homebrew (macOS and Linux) and Scoop (Windows):
   `brew install michelsalib/netbeagle/netbeagle`, or
   `scoop bucket add netbeagle https://github.com/michelsalib/scoop-netbeagle` then
   `scoop install netbeagle/netbeagle`. Each release updates them.
+
+### Fixed
+
+- A local server on a port a container also publishes (postgres on 127.0.0.1:5432 beside a container
+  on 0.0.0.0:5432) is its own listener, no longer counted as the container's.
 
 ## 0.2.0 (2026-10-12)
 

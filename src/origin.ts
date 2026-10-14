@@ -3,7 +3,8 @@
 // browser a Claude session started from its scratch folder, maybe after that worktree was removed.
 
 import { readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+// Claude Code's projects, and their scratch folders, are POSIX paths (Linux and macOS)
+import { posix } from "node:path";
 import { checkoutOf } from "./git.ts";
 import type { GitCheckout, Process } from "./model.ts";
 
@@ -52,7 +53,8 @@ const dirs = (d: string) => {
 				// a link to a directory is one too: macOS's /var and /tmp lead to /private
 				.filter(
 					(e) =>
-						e.isDirectory() || (e.isSymbolicLink() && exists(join(d, e.name))),
+						e.isDirectory() ||
+						(e.isSymbolicLink() && exists(posix.join(d, e.name))),
 				)
 				.map((e) => e.name)
 		);
@@ -77,7 +79,7 @@ export function decodeProject(
 			.filter((e) => rest === encode(e) || rest.startsWith(`${encode(e)}-`))
 			.sort((a, b) => b.length - a.length)[0];
 		if (!next) return { dir, missing: rest };
-		dir = join(dir, next);
+		dir = posix.join(dir, next);
 		rest = rest.slice(encode(next).length + 1);
 	}
 	return { dir };
@@ -117,7 +119,7 @@ export function annotate(
 			p.project = git
 				? { ...git, via: "session" }
 				: {
-						root: missing ? join(dir, missing) : dir,
+						root: missing ? posix.join(dir, missing) : dir,
 						worktree: false,
 						via: "session",
 						...(missing && { removed: true }),

@@ -195,3 +195,23 @@ test("scrolling: the list moves only when the selection leaves it; nothing else 
 	screen();
 	expect(s.top).toBe(3);
 });
+
+test("a long checkout name is cut in WHERE, its tags kept", () => {
+	const snap = structuredClone(base);
+	const node = snap.processes.find((p) => p.pid === 300);
+	if (!node) throw new Error("no node 300");
+	node.app = "claude";
+	node.orphan = true;
+	node.project = {
+		root: "/w/gt-846-writer-suggestions-seo-titres-et-mise-en",
+		worktree: false,
+		via: "session",
+		removed: true,
+	};
+	let s = applySnapshot(initialState(999), snap, 0);
+	[s] = keys(s, "/", "8080", "return");
+	const text = render(s, 120, 30, { color: false, now: 0 }).join("\n");
+	// 30 columns: 11 for the name, the rest for the tags
+	expect(text).toMatch(/node 300 +gt-846-wri… \(removed\) · claude /);
+	expect(text).toContain("its Claude session has ended");
+});

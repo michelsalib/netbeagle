@@ -83,13 +83,36 @@ export const tilde = (path: string, home?: string) =>
 		? `~${path.slice(home.length)}`
 		: path;
 
-/** Where a process runs: its git checkout and branch, else its directory, else (Windows, which gives
- * no directory) its arguments. */
+/** Where a process runs, in two parts: what (its checkout and branch, else its project, else its
+ * directory, else on Windows its arguments) and tags (the worktree removed, the app that launched it),
+ * so a narrow column cuts the name and keeps the tags. */
+export function placeParts(
+	p: Process,
+	home?: string,
+): { name: string; tags: string } {
+	const checkout = p.git ?? p.project;
+	// a worktree named after its branch: once is enough
+	const dir = checkout?.root.split(/[\\/]/).pop() ?? "";
+	const tags = [
+		p.project?.removed ? "(removed)" : "",
+		p.app ? `· ${p.app}` : "",
+	]
+		.filter(Boolean)
+		.join(" ");
+	const name = checkout
+		? `${dir}${p.project?.removed || checkout.branch === dir ? "" : checkout.branch ? ` (${checkout.branch})` : " (detached)"}`
+		: // an app's own process: its name says more than its directory
+			p.app
+			? ""
+			: p.cwd
+				? tilde(p.cwd, home)
+				: p.cmd.split(/\s+/).slice(1).join(" ");
+	return { name, tags: name ? tags : (p.app ?? "") };
+}
+
 export function place(p: Process, home?: string): string {
-	if (p.git)
-		return `${p.git.root.split(/[\\/]/).pop()}${p.git.branch ? ` (${p.git.branch})` : " (detached)"}`;
-	if (p.cwd) return tilde(p.cwd, home);
-	return p.cmd.split(/\s+/).slice(1).join(" ");
+	const { name, tags } = placeParts(p, home);
+	return [name, tags].filter(Boolean).join(" ");
 }
 
 /** How to see other users' processes: sudo, or on Windows an administrator terminal. */
@@ -356,8 +379,21 @@ export function renderWho(
 				"checkout",
 				`${tilde(p.git.root, o.home)}  ${p.git.branch ? `branch ${p.git.branch}` : "detached HEAD"}${p.git.worktree ? c.dim("  (worktree)") : ""}`,
 			]);
+		if (p?.project)
+			kv.push([
+				"project",
+				`${tilde(p.project.root, o.home)}  ${p.project.removed ? c.yellow("removed") : p.project.branch ? `branch ${p.project.branch}` : ""}${c.dim(p.project.via === "session" ? "  (from its Claude session)" : "  (from what started it)")}`,
+			]);
 		if (p?.cwd && p.cwd !== p.git?.root)
 			kv.push(["directory", tilde(p.cwd, o.home)]);
+		if (p?.app) kv.push(["app", p.app]);
+		if (p?.orphan)
+			kv.push([
+				"",
+				c.yellow(
+					`its Claude session has ended: probably left behind (netbeagle kill ${l.port})`,
+				),
+			]);
 		if (p && snap) {
 			const up = startedBy(snap, p.pid).slice(0, 3);
 			if (up.length) kv.push(["started by", up.map(procLabel).join(" ← ")]);

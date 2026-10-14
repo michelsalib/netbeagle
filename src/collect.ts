@@ -7,6 +7,7 @@ import { readContainers } from "./docker.ts";
 import { checkoutOf } from "./git.ts";
 import { collectLinux } from "./linux/collect.ts";
 import type { Address, Container, Snapshot } from "./model.ts";
+import { annotate } from "./origin.ts";
 import { type Run, run as system } from "./run.ts";
 import { collectWindows } from "./windows/collect.ts";
 
@@ -51,6 +52,8 @@ export function collect(o: CollectOptions = {}): Snapshot {
 			const git = checkoutOf(p.cwd, cache);
 			if (git) p.git = git;
 		}
+	// the app that launched each, and the project of those whose directory says nothing
+	annotate(machine.processes, cache);
 	return {
 		hostname: o.hostname ?? hostname(),
 		...machine,

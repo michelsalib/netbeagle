@@ -4,6 +4,7 @@
 import {
 	paint,
 	place,
+	placeParts,
 	type RenderOptions,
 	reachLabel,
 	tilde,
@@ -58,6 +59,15 @@ export function where(r: Row, home?: string): string {
 	return l.process ? place(l.process, home) : "";
 }
 
+/** `where` in `w` characters: a long checkout name is cut, its tags ("(removed) · claude") kept. */
+function whereCell(r: Row, w: number, home?: string): string {
+	const p = r.listener.process;
+	if (r.listener.container || !p) return where(r, home);
+	const { name, tags } = placeParts(p, home);
+	if (!name || !tags) return name || tags;
+	return `${cut(name, Math.max(4, w - tags.length - 1))} ${tags}`;
+}
+
 const ESC = "\x1b";
 
 /** Characters a terminal shows: colour codes (ESC [ … m) left out. */
@@ -86,7 +96,8 @@ export function cut(s: string, w: number): string {
 		out += s[i];
 		shown++;
 	}
-	return `${out}…${ESC}[0m`;
+	// a cut colour is closed; plain text stays plain
+	return s.includes(ESC) ? `${out}…${ESC}[0m` : `${out}…`;
 }
 const pad = (s: string, w: number) => cut(s, w).padEnd(w);
 
@@ -116,7 +127,7 @@ export function render(
 				: l.container
 					? ""
 					: `${l.user ?? "another user"}'s`,
-			where(r, o.home),
+			whereCell(r, WIDTHS[2] ?? 30, o.home),
 			age(p?.started, o.now),
 			l.clients.length ? String(l.clients.length) : "",
 			reachLabel(l, o),
@@ -210,8 +221,21 @@ function details(
 				"checkout",
 				`${tilde(p.git.root, o.home)}  ${p.git.branch ? `branch ${p.git.branch}` : "detached HEAD"}${p.git.worktree ? c.dim("  (worktree)") : ""}`,
 			]);
+		if (p.project)
+			kv.push([
+				"project",
+				`${tilde(p.project.root, o.home)}  ${p.project.removed ? c.yellow("removed") : p.project.branch ? `branch ${p.project.branch}` : ""}${c.dim(p.project.via === "session" ? "  (from its Claude session)" : "  (from what started it)")}`,
+			]);
 		if (p.cwd && p.cwd !== p.git?.root)
 			kv.push(["directory", tilde(p.cwd, o.home)]);
+		if (p.app) kv.push(["app", p.app]);
+		if (p.orphan)
+			kv.push([
+				"",
+				c.yellow(
+					"its Claude session has ended: probably left behind (k stops it)",
+				),
+			]);
 		if (s.snap) {
 			const up = startedBy(s.snap, p.pid).slice(0, 4);
 			if (up.length)

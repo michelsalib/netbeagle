@@ -37,11 +37,25 @@ const SESSION =
 /** How Claude Code names a project: its path with every character but letters and digits as "-". */
 const encode = (s: string) => s.replace(/[^A-Za-z0-9]/g, "-");
 
+const exists = (d: string) => {
+	try {
+		return statSync(d).isDirectory();
+	} catch {
+		return false;
+	}
+};
+
 const dirs = (d: string) => {
 	try {
-		return readdirSync(d, { withFileTypes: true })
-			.filter((e) => e.isDirectory())
-			.map((e) => e.name);
+		return (
+			readdirSync(d, { withFileTypes: true })
+				// a link to a directory is one too: macOS's /var and /tmp lead to /private
+				.filter(
+					(e) =>
+						e.isDirectory() || (e.isSymbolicLink() && exists(join(d, e.name))),
+				)
+				.map((e) => e.name)
+		);
 	} catch {
 		return [];
 	}
@@ -68,14 +82,6 @@ export function decodeProject(
 	}
 	return { dir };
 }
-
-const exists = (d: string) => {
-	try {
-		return statSync(d).isDirectory();
-	} catch {
-		return false;
-	}
-};
 
 /**
  * Sets each process's `app` (the nearest known app among itself and what started it, or the Claude

@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { placeParts } from "../src/format.ts";
 import type { Process } from "../src/model.ts";
 import { annotate, decodeProject } from "../src/origin.ts";
+
+// Claude Code's scratch folders (/tmp/claude-UID/…) are Linux's and macOS's
+const windows = process.platform === "win32";
 
 // a directory tree as decodeProject lists it
 const tree: Record<string, string[]> = {
@@ -87,46 +90,67 @@ test("the app that launched a process, through bash -c and runners", () => {
 	expect(ps.find((x) => x.pid === 30)?.project).toBeUndefined();
 });
 
-test("a browser a Claude session left behind, its worktree removed since", () => {
-	const top = mkdtempSync(join(tmpdir(), "netbeagle-origin-"));
-	const ws = join(top, "ws");
-	mkdirSync(join(ws, "app", ".git"), { recursive: true });
-	writeFileSync(join(ws, "app", ".git", "HEAD"), "ref: refs/heads/main\n");
-	const encoded = ws.replace(/[^A-Za-z0-9]/g, "-");
-	const session = "1daf761c-3115-4871-bd63-ae5e47e4d26c";
-	const scratch = (project: string) =>
-		`/tmp/claude-1000/${encoded}-${project}/${session}/scratchpad/cdp`;
-	const ps = [
-		// its session is over: its parent is init now
-		p(100, 1, "chrome", "chrome --headless=new --remote-debugging-port=9333", {
-			cwd: scratch("gt-846-seo"),
-		}),
-		// a session still running, in a worktree that exists
-		p(200, 1, "claude", "claude"),
-		p(210, 200, "chrome", "chrome --headless=new", { cwd: scratch("app") }),
-	];
-	annotate(ps);
-	const [gone, , live] = ps;
-	expect(gone).toMatchObject({
-		app: "claude",
-		orphan: true,
-		project: { root: join(ws, "gt-846-seo"), removed: true, via: "session" },
-	});
-	expect(live?.orphan).toBeUndefined();
-	expect(live?.project).toMatchObject({
-		root: join(ws, "app"),
-		branch: "main",
-		via: "session",
-	});
-	expect(placeParts(gone as Process)).toEqual({
-		name: "gt-846-seo",
-		tags: "(removed) · claude",
-	});
-	expect(placeParts(live as Process)).toEqual({
-		name: "app (main)",
-		tags: "· claude",
-	});
-});
+test.skipIf(windows)(
+	"a browser a Claude session left behind, its worktree removed since",
+	() => {
+		const top = mkdtempSync(join(tmpdir(), "netbeagle-origin-"));
+		const ws = join(top, "ws");
+		mkdirSync(join(ws, "app", ".git"), { recursive: true });
+		writeFileSync(join(ws, "app", ".git", "HEAD"), "ref: refs/heads/main\n");
+		const encoded = ws.replace(/[^A-Za-z0-9]/g, "-");
+		const session = "1daf761c-3115-4871-bd63-ae5e47e4d26c";
+		const scratch = (project: string) =>
+			`/tmp/claude-1000/${encoded}-${project}/${session}/scratchpad/cdp`;
+		const ps = [
+			// its session is over: its parent is init now
+			p(
+				100,
+				1,
+				"chrome",
+				"chrome --headless=new --remote-debugging-port=9333",
+				{
+					cwd: scratch("gt-846-seo"),
+				},
+			),
+			// a session still running, in a worktree that exists
+			p(200, 1, "claude", "claude"),
+			p(210, 200, "chrome", "chrome --headless=new", { cwd: scratch("app") }),
+		];
+		annotate(ps);
+		const [gone, , live] = ps;
+		expect(gone).toMatchObject({
+			app: "claude",
+			orphan: true,
+			project: { root: join(ws, "gt-846-seo"), removed: true, via: "session" },
+		});
+		expect(live?.orphan).toBeUndefined();
+		expect(live?.project).toMatchObject({
+			root: join(ws, "app"),
+			branch: "main",
+			via: "session",
+		});
+		expect(placeParts(gone as Process)).toEqual({
+			name: "gt-846-seo",
+			tags: "(removed) · claude",
+		});
+		expect(placeParts(live as Process)).toEqual({
+			name: "app (main)",
+			tags: "· claude",
+		});
+	},
+);
+
+test.skipIf(windows)(
+	"a symlinked directory on the way, as macOS's /var: still decoded",
+	() => {
+		const top = mkdtempSync(join(tmpdir(), "netbeagle-link-"));
+		mkdirSync(join(top, "real", "my.app"), { recursive: true });
+		symlinkSync(join(top, "real"), join(top, "linked"), "junction");
+		const encoded = join(top, "linked", "my.app").replace(/[^A-Za-z0-9]/g, "-");
+		expect(decodeProject(encoded).missing).toBeUndefined();
+		expect(decodeProject(encoded).dir).toEndWith(join("linked", "my.app"));
+	},
+);
 
 test("a project from the parent in a checkout; an app's own process named after the app", () => {
 	const ps = [

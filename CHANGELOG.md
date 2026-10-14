@@ -2,6 +2,19 @@
 
 All notable changes to netbeagle. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+### Added
+
+- Where a process comes from, beyond its directory: the app that launched it (`· claude`, `· VS Code`,
+  `· Orca`, cursor, codex), and when its own directory is in no checkout, the project it works for, from
+  the Claude session whose scratch folder it runs in, or from the nearest parent in a checkout. A
+  worktree removed since shows as `(removed)`, and a process whose Claude session has ended is flagged
+  as probably left behind (a headless browser, say). In `watch`, `who`, `kill`, completion and `--json`
+  (`app`, `project`, `orphan`).
+- WHERE shows a worktree's branch only when it differs from the worktree's name, and an app's own
+  process (VS Code's server) as the app rather than its directory.
+
 ## 0.5.0 (2026-10-13)
 
 ### Added

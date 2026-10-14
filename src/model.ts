@@ -103,6 +103,19 @@ export interface Process {
 	cwd?: string;
 	/** The git checkout its working directory is in. */
 	git?: GitCheckout;
+	/** The app that launched it, or what started it: claude, VS Code, Orca… */
+	app?: string;
+	/** When its own directory is in no checkout: the project it works for, from the Claude session it
+	 * runs in (its scratch folder) or from the nearest parent in a checkout. */
+	project?: Project;
+	/** Launched by a Claude session that has ended: probably left behind. */
+	orphan?: boolean;
+}
+
+export interface Project extends GitCheckout {
+	via: "session" | "parent";
+	/** The worktree no longer exists. */
+	removed?: boolean;
 }
 
 export interface GitCheckout {

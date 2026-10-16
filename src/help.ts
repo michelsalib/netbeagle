@@ -18,6 +18,10 @@ export const OPTIONS: Record<string, [string, string]> = {
 		"--show-secrets",
 		"don't mask the values of --token=, --password and the like\nin command lines",
 	],
+	"no-probe": [
+		"--no-probe",
+		"don't ask ports whether they answer HTTP: o and open PORT\nopen http://localhost:PORT (or its address) unchecked",
+	],
 	tree: [
 		"--tree",
 		"with what started it: bun run dev, npm, a watcher; never your shell",
@@ -100,11 +104,25 @@ the interfaces is on, or a gateway; with the route and the source address.`,
 process behind it, the git checkout and branch it runs in (or its directory),
 how long it has been up and its clients; ports that just opened or closed are
 marked. Select one to see its command line, what started it (bun run dev, npm)
-and what stopping it would take. Keys: arrows to select, k to stop its process,
-K to stop it with what started it, / to filter (a branch, a port, a name), r to
-refresh, q to quit. A second k forces it (SIGKILL); a container is docker stopped.`,
-		options: ["no-docker", "show-secrets"],
+and what stopping it would take, and its URL when it answers HTTP. Keys: arrows
+to select, o to open it in the browser, k to stop its process, K to stop it with
+what started it, / to filter (a branch, a port, a name), r to refresh, q to quit.
+A second k forces it (SIGKILL); a container is docker stopped. The mouse works
+too: click a port to select it, its URL to open it, the wheel to move, and the
+keys on the last line to press them (shift-drag still selects text).`,
+		options: ["no-docker", "show-secrets", "no-probe"],
 		examples: ["netbeagle watch", "sudo netbeagle watch"],
+	},
+	open: {
+		usage: ["open [PORT]"],
+		summary: "open PORT in the browser; alone, every port a browser can open",
+		about: `Asks what listens on PORT for / over HTTP, then HTTPS, and opens it in the
+browser (in WSL, Windows' browser). Without PORT, lists every port that answers
+HTTP with its URL, whether it is a page or an API, and what holds it. Databases,
+caches and the like are never asked: Redis takes an HTTP request for an attack.
+Exits 1 when nothing answers.`,
+		options: ["json", "no-probe", "no-docker"],
+		examples: ["netbeagle open 3000", "netbeagle open"],
 	},
 	kill: {
 		usage: ["kill PORT"],
@@ -142,7 +160,7 @@ with the DNS servers and the way to them.`,
 		usage: ["completion SHELL"],
 		summary: "print a shell completion script",
 		about: `Prints a completion script for SHELL (bash, zsh, fish or powershell): commands,
-their options, and for who and kill the ports listening right now, each with what
+their options, and for who, kill and open the ports listening right now, each with what
 holds it. Load it from your shell's startup file (install.sh and Homebrew install
 it for bash and fish).`,
 		options: [],

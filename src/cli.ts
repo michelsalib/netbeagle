@@ -46,6 +46,7 @@ import { ALIASES, COMMAND_HELP, commandHelp, overview } from "./help.ts";
 import { killPort } from "./kill.ts";
 import { banner } from "./logo.ts";
 import { maskCmd, type Snapshot } from "./model.ts";
+import { openPort } from "./open.ts";
 import {
 	binaryName,
 	compiled,
@@ -103,6 +104,7 @@ async function main(argv: string[]): Promise<number> {
 			all: { type: "boolean", short: "a" },
 			"no-docker": { type: "boolean" },
 			"show-secrets": { type: "boolean" },
+			"no-probe": { type: "boolean" },
 			tree: { type: "boolean" },
 			force: { type: "boolean" },
 			yes: { type: "boolean", short: "y" },
@@ -195,6 +197,7 @@ async function main(argv: string[]): Promise<number> {
 			],
 			// PowerShell takes a couple of seconds to start: refresh less often on Windows
 			interval: process.platform === "win32" ? 3000 : 1500,
+			probe: !values["no-probe"],
 		});
 		return 0;
 	}
@@ -315,6 +318,20 @@ async function main(argv: string[]): Promise<number> {
 				opts,
 			});
 		}
+		case "open": {
+			const port = Number(args[0]?.replace(/^:/, ""));
+			if (args[0] && (!Number.isInteger(port) || port < 1 || port > 65535))
+				return usage("open takes a port number, e.g. netbeagle open 3000");
+			if (!args[0] && values["no-probe"])
+				return usage(
+					"open lists the ports that answer HTTP, which means asking them: give a PORT to open it unchecked",
+				);
+			return openPort(snap, args[0] ? port : undefined, {
+				json: !!values.json,
+				probe: !values["no-probe"],
+				opts: { ...opts, width: undefined },
+			});
+		}
 		case "map": {
 			const m = map(snap);
 			print(
@@ -327,7 +344,7 @@ async function main(argv: string[]): Promise<number> {
 	return usage(`no command '${given}'`);
 }
 
-/** The ports listening now, for `who` and `kill` completion: what holds each, and where it runs. */
+/** The ports listening now, for `who`, `kill` and `open` completion: what holds each, and where it runs. */
 function portCandidates(): PortCandidate[] {
 	const home = homedir();
 	const by = new Map<number, string>();

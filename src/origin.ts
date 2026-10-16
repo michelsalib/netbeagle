@@ -23,9 +23,14 @@ const APPS: [string, (p: Process) => boolean][] = [
 		(p) =>
 			/\.vscode-server|Microsoft VS Code|^code$/i.test(`${p.cmd} ${p.name}`),
 	],
+	// Orca's own files, not its worktrees: a command that cds into ~/orca/workspaces is no Orca
 	[
 		"Orca",
-		(p) => /[\\/]\.?orca(-wsl)?[\\/]|^orca$/i.test(`${p.cmd} ${p.name}`),
+		(p) =>
+			/^orca(\.exe)?$/i.test(p.name) ||
+			/[\\/]\.orca-wsl[\\/]|[\\/]orca[\\/]shell-wrappers[\\/]|\$ORCA_|[\\/]Orca(\.exe|\.app)\b/i.test(
+				p.cmd,
+			),
 	],
 ];
 

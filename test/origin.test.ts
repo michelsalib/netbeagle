@@ -77,14 +77,31 @@ test("the app that launched a process, through bash -c and runners", () => {
 		p(60, 1, "node", "/home/me/.orca-wsl/hook-relay/wsl-agent-hook-relay.js"),
 		p(70, 1, "zsh", "-zsh"),
 		p(80, 70, "node", "node server.js"),
+		// claude in an Orca terminal, its bash cd-ing into an Orca worktree: still claude's
+		p(
+			90,
+			1,
+			"bash",
+			"/bin/bash --rcfile /mnt/c/Users/me/AppData/Roaming/orca/shell-wrappers/4e6b/shell-ready/bash/rcfile",
+		),
+		p(100, 90, "claude", "claude"),
+		p(
+			110,
+			100,
+			"bash",
+			"/bin/bash -c eval 'cd /home/me/orca/workspaces/app/GT-862 && bun src/server.ts'",
+		),
+		p(120, 110, "bun", "bun src/server.ts"),
 	];
 	annotate(ps);
 	const app = (pid: number) => ps.find((x) => x.pid === pid)?.app;
-	expect([app(30), app(50), app(60), app(80)]).toEqual([
+	expect([app(30), app(50), app(60), app(80), app(90), app(120)]).toEqual([
 		"claude",
 		"VS Code",
 		"Orca",
 		undefined,
+		"Orca",
+		"claude",
 	]);
 	// a checkout of its own: no project borrowed
 	expect(ps.find((x) => x.pid === 30)?.project).toBeUndefined();

@@ -11,22 +11,25 @@ import {
 } from "../format.ts";
 import type { Process } from "../model.ts";
 import { startedBy } from "../stop.ts";
+import { webLabel } from "../web.ts";
 import {
+	type Key,
 	MARK_MS,
 	type Row,
 	type State,
 	selectedRow,
 	targets,
 	visible,
+	webOf,
 } from "./state.ts";
 
-/** Lines the selected port's details take, always: its title and up to 9 more. */
+/** Lines the selected port's details take, always: the rule with its title and up to 9 more. */
 export const DETAIL = 10;
 
 /** PORT ("udp 65535"), PROCESS, WHERE, UP, CLIENTS; the last column takes what is left. */
 const WIDTHS = [9, 20, 30, 4, 7];
 
-/** Rows the table shows: what the header, the details and the keys leave. */
+/** Rows the table shows: what the header, the titles, the details, the message and the keys leave. */
 export const tableRoom = (height: number) => Math.max(3, height - 4 - DETAIL);
 
 /** The first row shown: where the list was scrolled to, moved only as far as the selection needs. */
@@ -59,19 +62,25 @@ export function where(r: Row, home?: string): string {
 	return l.process ? place(l.process, home) : "";
 }
 
-/** `where` in `w` characters: a long checkout name is cut, its tags ("(removed) · claude") kept. */
-function whereCell(r: Row, w: number, home?: string): string {
+/** `where` in `w` characters: a long checkout name is cut, its tags ("(removed) · claude") kept;
+ * the checkout coloured, the tags faded. */
+function whereCell(r: Row, w: number, o: RenderOptions, home?: string): string {
+	const c = paint(o);
 	const p = r.listener.process;
 	if (r.listener.container || !p) return where(r, home);
 	const { name, tags } = placeParts(p, home);
-	if (!name || !tags) return name || tags;
-	return `${cut(name, Math.max(4, w - tags.length - 1))} ${tags}`;
+	const removed = tags.startsWith("(removed)");
+	const tagged = removed
+		? `${c.yellow("(removed)")}${c.dim(tags.slice("(removed)".length))}`
+		: c.dim(tags);
+	if (!name || !tags) return name ? c.cyan(name) : tagged;
+	return `${c.cyan(cut(name, Math.max(4, w - tags.length - 1)))} ${tagged}`;
 }
 
 const ESC = "\x1b";
 
 /** Characters a terminal shows: colour codes (ESC [ … m) left out. */
-function visibleLength(s: string): number {
+export function visibleLength(s: string): number {
 	let n = 0;
 	for (let i = 0; i < s.length; i++) {
 		if (s[i] === ESC) i = s.indexOf("m", i);
@@ -80,6 +89,10 @@ function visibleLength(s: string): number {
 	}
 	return n;
 }
+
+/** `s` without its colour codes. */
+const plain = (s: string) =>
+	s.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
 
 /** `s` cut to `w` visible characters, its colour codes kept whole. */
 export function cut(s: string, w: number): string {
@@ -99,7 +112,65 @@ export function cut(s: string, w: number): string {
 	// a cut colour is closed; plain text stays plain
 	return s.includes(ESC) ? `${out}…${ESC}[0m` : `${out}…`;
 }
-const pad = (s: string, w: number) => cut(s, w).padEnd(w);
+/** `s` in exactly `w` visible characters: cut, or padded with spaces. */
+const pad = (s: string, w: number) => {
+	const t = cut(s, w);
+	return t + " ".repeat(Math.max(0, w - visibleLength(t)));
+};
+
+/** Where the table's first row is drawn: under the header and the column titles. */
+export const TABLE_TOP = 2;
+
+/** A piece of the last line: a key and what it does (a click presses it), or just text. */
+export interface Part {
+	key?: string;
+	label: string;
+	press?: Key;
+	style?: "question";
+}
+
+/** The last line: the question asked, the filter being typed, or the keys. */
+export function footer(s: State): Part[] {
+	if (s.confirm)
+		return [
+			{ label: s.confirm.question, style: "question" },
+			{ key: "y", label: "yes", press: { ch: "y" } },
+			{ key: "n", label: "no", press: { ch: "n" } },
+		];
+	if (s.filtering)
+		return [
+			{ label: `/${s.filter}▏` },
+			{ key: "enter", label: "keep", press: { name: "return" } },
+			{ key: "esc", label: "clear", press: { name: "escape" } },
+		];
+	const web = webOf(s, selectedRow(s));
+	return [
+		{ key: "↑↓", label: "select" },
+		...(web && web.kind !== "none"
+			? [{ key: "o", label: "open", press: { ch: "o" } }]
+			: []),
+		{ key: "k", label: "stop", press: { ch: "k" } },
+		{ key: "K", label: "stop with what started it", press: { ch: "K" } },
+		s.filter
+			? { key: "esc", label: "clear filter", press: { name: "escape" } }
+			: { key: "/", label: "filter", press: { ch: "/" } },
+		{ key: "r", label: "refresh", press: { ch: "r" } },
+		{ key: "q", label: "quit", press: { ch: "q" } },
+	];
+}
+
+const partText = (p: Part) => (p.key ? `${p.key} ${p.label}` : p.label);
+
+/** The part of the last line at column `x`, counted from 0. */
+export function footerAt(s: State, x: number): Part | undefined {
+	let at = 0;
+	for (const p of footer(s)) {
+		const end = at + [...partText(p)].length;
+		if (x >= at && x < end) return p;
+		at = end + 2;
+	}
+	return undefined;
+}
 
 export function render(
 	s: State,
@@ -111,26 +182,30 @@ export function render(
 	const rows = visible(s);
 	const sel = selectedRow(s);
 	const out: string[] = [];
-	const head = s.snap
-		? `${s.snap.hostname}  ${rows.length} port${rows.length === 1 ? "" : "s"}${s.filter ? ` matching "${s.filter}"` : ""}  updated ${age(s.updated, o.now)} ago`
-		: "reading the machine…";
-	out.push(cut(`${c.bold("netbeagle watch")}  ${c.dim(head)}`, width));
+
+	// the header: what this is and where, and on the right how fresh it is
+	const left = s.snap
+		? `${c.bold("netbeagle watch")}  ${c.cyan(s.snap.hostname)}  ${c.dim(`${rows.length} port${rows.length === 1 ? "" : "s"}${s.filter ? ` matching "${s.filter}"` : ""}`)}`
+		: `${c.bold("netbeagle watch")}  ${c.dim("reading the machine…")}`;
+	const right = s.snap ? c.dim(`updated ${age(s.updated, o.now)} ago`) : "";
+	const gap = width - visibleLength(left) - visibleLength(right);
+	out.push(cut(gap >= 2 ? left + " ".repeat(gap) + right : left, width));
 
 	// the table: as many rows as fit above the details, the selected one in view
 	const cells = rows.map((r) => {
 		const l = r.listener;
 		const p = l.process;
 		return [
-			`${l.proto} ${l.port}`,
+			`${c.dim(l.proto)} ${c.bold(String(l.port))}`,
 			p
-				? `${p.name} ${p.pid}`
+				? `${p.name} ${c.dim(String(p.pid))}`
 				: l.container
 					? ""
 					: `${l.user ?? "another user"}'s`,
-			whereCell(r, WIDTHS[2] ?? 30, o.home),
-			age(p?.started, o.now),
+			whereCell(r, WIDTHS[2] ?? 30, o, o.home),
+			c.dim(age(p?.started, o.now)),
 			l.clients.length ? String(l.clients.length) : "",
-			reachLabel(l, o),
+			reachCell(l, o),
 		];
 	});
 	const titles = [
@@ -152,10 +227,8 @@ export function render(
 		);
 	// fixed places: the table always as tall, the details always as tall, so nothing moves as the
 	// selection or the filter changes
-	const detail = (sel ? details(s, sel, width, o) : []).slice(0, DETAIL);
-	while (detail.length < DETAIL) detail.push("");
 	const room = tableRoom(height);
-	out.push(`  ${c.dim(line(titles))}`);
+	out.push(`  ${c.bold(c.dim(line(titles)))}`);
 	const first = scrolled(s, room);
 	for (const [i, r] of rows.entries()) {
 		if (i < first || i >= first + room) continue;
@@ -165,8 +238,13 @@ export function render(
 			: r.appeared && o.now - r.appeared < MARK_MS
 				? c.green("+")
 				: " ";
+		// the selection a bar across the screen; what can't be acted on (another user's, closed) faded
 		const body =
-			r.key === sel?.key ? c.inverse(text) : r.closed ? c.dim(text) : text;
+			r.key === sel?.key
+				? c.inverse(pad(plain(text), width - 2))
+				: r.closed || (!r.listener.process && !r.listener.container)
+					? c.dim(plain(text))
+					: text;
 		out.push(`${mark} ${body}`);
 	}
 	if (!rows.length)
@@ -175,27 +253,83 @@ export function render(
 				s.snap ? (s.filter ? "  nothing matches" : "  nothing listens") : "",
 			),
 		);
-	while (out.length < 2 + room) out.push("");
-	out.push("");
-	out.push(...detail);
-	while (out.length < height - 1) out.push("");
+	while (out.length < TABLE_TOP + room) out.push("");
 
-	// the last line: a question, a message, the filter being typed, or the keys
-	out.length = Math.max(0, height - 1);
+	// a rule between the table and the details, titled with the selected port; on its right, which
+	// rows the table shows when they don't all fit
+	const title = sel ? detailTitle(sel, o) : "";
+	const span =
+		rows.length > room
+			? c.dim(
+					`${first + 1}–${Math.min(rows.length, first + room)} of ${rows.length}`,
+				)
+			: "";
+	const fill = Math.max(
+		2,
+		width - visibleLength(title) - visibleLength(span) - 8,
+	);
 	out.push(
-		s.confirm
-			? c.yellow(`${s.confirm.question} y/n`)
-			: s.filtering
-				? `/${s.filter}${c.dim("▏  enter to keep, esc to clear")}`
-				: s.message
-					? s.message.error
-						? c.red(s.message.text)
-						: c.green(s.message.text)
-					: c.dim(
-							"↑↓ select  k stop  K stop with what started it  / filter  r refresh  q quit",
-						),
+		cut(
+			`${c.dim("──")} ${title}${title ? " " : ""}${c.dim("─".repeat(fill))}${span ? ` ${span} ${c.dim("──")}` : c.dim("────")}`,
+			width,
+		),
+	);
+	const detail = (sel ? details(s, sel, width, o) : []).slice(0, DETAIL - 1);
+	while (detail.length < DETAIL - 1) detail.push("");
+	out.push(...detail);
+
+	// a message on its own line, so the keys stay in sight
+	out.length = Math.max(0, height - 2);
+	while (out.length < height - 2) out.push("");
+	out.push(
+		s.message
+			? cut(
+					s.message.error ? c.red(s.message.text) : c.green(s.message.text),
+					width,
+				)
+			: "",
+	);
+	out.push(
+		cut(
+			footer(s)
+				.map((p) =>
+					p.key
+						? `${c.bold(p.key)} ${c.dim(p.label)}`
+						: p.style === "question"
+							? c.yellow(p.label)
+							: p.label,
+				)
+				.join("  "),
+			width,
+		),
 	);
 	return out;
+}
+
+/** How far a port reaches: this machine alone reassures, every interface warns. */
+function reachCell(l: Row["listener"], o: RenderOptions): string {
+	const c = paint(o);
+	const text = reachLabel(l, o);
+	const [base = "", windows] = text.split(" + ");
+	const coloured =
+		l.reach.scope === "local"
+			? c.green(base)
+			: l.reach.scope === "everywhere"
+				? c.yellow(base)
+				: base;
+	return windows ? `${coloured}${c.dim(` + ${windows}`)}` : coloured;
+}
+
+/** The selected port, as the details' title: its port and who holds it. */
+function detailTitle(r: Row, o: RenderOptions): string {
+	const c = paint(o);
+	const l = r.listener;
+	const who = l.process
+		? `${l.process.name} ${l.process.pid}`
+		: l.container
+			? `container ${l.container.name}`
+			: "";
+	return `${c.bold(`${l.proto} ${l.port}`)}${who ? `  ${who}` : ""}${r.closed ? c.red("  closed") : ""}`;
 }
 
 /** The selected port in full: command, directory, what started it, what stopping would take, clients. */
@@ -209,6 +343,13 @@ function details(
 	const l = r.listener;
 	const p = l.process;
 	const kv: [string, string][] = [];
+	// first, always on the same line: a click on it opens it
+	const web = s.web[r.key];
+	if (web && web.kind !== "none")
+		kv.push([
+			"url",
+			`${c.cyan(c.underline(web.url))}  ${webLabel(web)}${c.dim("  o or click to open")}`,
+		]);
 	if (l.container)
 		kv.push([
 			"container",
@@ -266,11 +407,7 @@ function details(
 				)
 				.join(", ") + (l.clients.length > 3 ? ` +${l.clients.length - 3}` : ""),
 		]);
-	return [
-		c.bold(`${l.proto} ${l.port}${r.closed ? c.red("  closed") : ""}`),
-		...kv.map(
-			([k, v]) =>
-				`  ${c.dim(k.padEnd(10))} ${cut(v, Math.max(10, width - 14))}`,
-		),
-	];
+	return kv.map(
+		([k, v]) => `  ${c.dim(k.padEnd(10))} ${cut(v, Math.max(10, width - 14))}`,
+	);
 }

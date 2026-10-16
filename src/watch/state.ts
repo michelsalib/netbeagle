@@ -4,6 +4,7 @@
 import { type Listener, listeners } from "../analyze.ts";
 import type { Process, Snapshot } from "../model.ts";
 import { treeOf } from "../stop.ts";
+import { unchecked, type Web } from "../web.ts";
 
 /** How long a port that appeared or closed stays marked. */
 export const MARK_MS = 10_000;
@@ -45,6 +46,10 @@ export interface State {
 	updated?: number;
 	/** netbeagle's own pid: never part of a tree to stop. */
 	self: number;
+	/** What each row answers over HTTP, by row key, once asked. */
+	web: Record<string, Web>;
+	/** Ask the selected port whether it answers HTTP; off (--no-probe), every port is taken for one. */
+	probe: boolean;
 }
 
 export interface Key {
@@ -58,15 +63,18 @@ export type Effect =
 	| { kind: "quit" }
 	| { kind: "refresh" }
 	| { kind: "stop"; pids: number[]; force: boolean }
-	| { kind: "docker-stop"; container: string };
+	| { kind: "docker-stop"; container: string }
+	| { kind: "open"; url: string; row: Row };
 
-export const initialState = (self = process.pid): State => ({
+export const initialState = (self = process.pid, probe = true): State => ({
 	rows: [],
 	top: 0,
 	filtering: false,
 	filter: "",
 	signalled: [],
 	self,
+	web: {},
+	probe,
 });
 
 const ownerKey = (l: Listener) =>
@@ -116,6 +124,14 @@ export function applySnapshot(s: State, snap: Snapshot, now: number): State {
 		rows,
 		updated: now,
 		signalled: s.signalled.filter((pid) => running.has(pid)),
+		// what a closed port answered goes with it: one opening on its port is asked again
+		web: s.probe
+			? Object.fromEntries(
+					Object.entries(s.web).filter(([key]) =>
+						fresh.some((r) => r.key === key),
+					),
+				)
+			: Object.fromEntries(fresh.map((r) => [r.key, unchecked(r.listener)])),
 		selected: s.selected ?? visible({ ...s, rows })[0]?.key,
 	};
 }
@@ -204,7 +220,37 @@ function askStop(s: State, r: Row, tree: boolean): State {
 	};
 }
 
-function move(s: State, by: number): State {
+/** The selection `by` rows down (up when negative), kept within the list. */
+/** What the selected row's server answers over HTTP: its URL to open, when it is a page or an API. */
+export const webOf = (s: State, r: Row | undefined) =>
+	r ? s.web[r.key] : undefined;
+
+/** What `o` does: open the selected port in the browser, or say why it can't. */
+function askOpen(s: State, r: Row): [State, Effect?] {
+	const w = webOf(s, r);
+	const port = `${r.listener.proto} ${r.listener.port}`;
+	if (r.closed) return [{ ...s, message: { text: "it has closed already" } }];
+	if (!w)
+		return [
+			{
+				...s,
+				message: { text: `asking ${port} whether it answers HTTP…` },
+			},
+		];
+	if (w.kind === "none")
+		return [
+			{
+				...s,
+				message: { text: `${port} doesn't answer HTTP: nothing to open` },
+			},
+		];
+	return [
+		{ ...s, message: { text: `opening ${w.url}` } },
+		{ kind: "open", url: w.url, row: r },
+	];
+}
+
+export function move(s: State, by: number): State {
 	const rows = visible(s);
 	if (!rows.length) return s;
 	const at = Math.max(
@@ -271,8 +317,20 @@ export function handleKey(s: State, k: Key): [State, Effect?] {
 			return r ? [askStop(s, r, true)] : [s];
 		case "/":
 			return [{ ...s, filtering: true }];
+		case "o":
+			return r ? askOpen(s, r) : [s];
 		case "r":
-			return [{ ...s, message: { text: "refreshing…" } }, { kind: "refresh" }];
+			// ports that didn't answer HTTP are asked again: a server still starting may now
+			return [
+				{
+					...s,
+					message: { text: "refreshing…" },
+					web: Object.fromEntries(
+						Object.entries(s.web).filter(([, w]) => w.kind !== "none"),
+					),
+				},
+				{ kind: "refresh" },
+			];
 	}
 	return [s];
 }

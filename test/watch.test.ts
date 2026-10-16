@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import type { Snapshot, Socket } from "../src/model.ts";
+import { handleMouse, readMouse } from "../src/watch/mouse.ts";
 import {
 	applySnapshot,
 	handleKey,
@@ -11,7 +12,13 @@ import {
 	selectedRow,
 	visible,
 } from "../src/watch/state.ts";
-import { render, scrolled, tableRoom } from "../src/watch/view.ts";
+import {
+	footerAt,
+	render,
+	scrolled,
+	TABLE_TOP,
+	tableRoom,
+} from "../src/watch/view.ts";
 import { fixture, pg } from "./helpers.ts";
 
 const base = fixture();
@@ -119,6 +126,7 @@ test("the screen: where each server runs, and the selected one in detail", () =>
 	expect(text).toContain("started by bun 250 ← zsh 240");
 	expect(text).toContain("K stops    bun 250, node 300");
 	expect(text).toContain("↑↓ select  k stop");
+	expect(text).toMatch(/^── tcp 8080 {2}node 300 ─+$/m);
 });
 
 // a real terminal: the built CLI in a pseudo-terminal (Python's pty, not on Windows)
@@ -181,14 +189,14 @@ test("scrolling: the list moves only when the selection leaves it; nothing else 
 		const lines = screen();
 		tops.push(s.top);
 		heights.add(lines.length);
-		// the details' title: the selected port's "tcp N" alone on its line
-		detailAt.add(lines.findIndex((l) => /^(tcp|udp) \d+( |$)/.test(l)));
+		// the rule over the details, titled with the selected port
+		detailAt.add(lines.findIndex((l) => /^── (tcp|udp) \d+ /.test(l)));
 		[s] = keys(s, "down");
 	}
 	// still at the top while the selection is in view, then one row per step
 	expect(tops.slice(0, room)).toEqual(Array(room).fill(0));
 	expect(tops.slice(room)).toEqual([1, 2, 3]);
-	expect(detailAt.size).toBe(1);
+	expect(detailAt).toEqual(new Set([2 + room]));
 	expect(heights).toEqual(new Set([height]));
 	// back up: the list stays where it is until the selection reaches its top
 	[s] = keys(s, "up");
@@ -214,4 +222,102 @@ test("a long checkout name is cut in WHERE, its tags kept", () => {
 	// 30 columns: 11 for the name, the rest for the tags
 	expect(text).toMatch(/node 300 +gt-846-wri… \(removed\) · claude /);
 	expect(text).toContain("its Claude session has ended");
+});
+
+test("the mouse: reports taken out of the keys, even cut in two", () => {
+	const a = readMouse("q\x1b[<0;5;3Mj\x1b[<0;5;3m\x1b[<6");
+	expect(a.events).toEqual([
+		{ button: 0, x: 4, y: 2, pressed: true },
+		{ button: 0, x: 4, y: 2, pressed: false },
+	]);
+	expect(a.rest).toBe("qj");
+	expect(a.pending).toBe("\x1b[<6");
+	const b = readMouse(`${a.pending}5;1;1M\x1b[A`);
+	expect(b.events).toEqual([{ button: 65, x: 0, y: 0, pressed: true }]);
+	expect(b.rest).toBe("\x1b[A");
+});
+
+test("the mouse: a click selects its row, the wheel moves, the keys on the last line press", () => {
+	const height = 24;
+	let s = applySnapshot(initialState(999), base, 0);
+	const click = (x: number, y: number, button = 0) =>
+		handleMouse(s, { button, x, y, pressed: true }, height);
+	// the fourth row: tcp 5432
+	[s] = click(10, TABLE_TOP + 3);
+	expect(selectedRow(s)?.listener.port).toBe(5432);
+	// below the last row, the details: nothing changes
+	expect(click(10, TABLE_TOP + 10)[0]).toBe(s);
+	[s] = click(10, 0, 64);
+	expect(selectedRow(s)?.listener.port).toBe(22);
+	[s] = click(10, 0, 65);
+	expect(selectedRow(s)?.listener.port).toBe(5432);
+	[s] = click(10, TABLE_TOP + 2);
+	expect(selectedRow(s)?.listener.port).toBe(5000);
+	// "↑↓ select  k stop": k at column 11
+	expect(footerAt(s, 11)?.press).toEqual({ ch: "k" });
+	expect(footerAt(s, 10)).toBeUndefined();
+	[s] = click(12, height - 1);
+	expect(s.confirm?.question).toBe("stop node 300?");
+	// a question waits: a row clicked neither answers nor selects
+	expect(click(10, TABLE_TOP)[0]).toBe(s);
+	const yes = (footerAt(s, 0)?.label.length ?? 0) + 2;
+	const [t, effect] = click(yes, height - 1);
+	expect(t.confirm).toBeUndefined();
+	expect(effect).toEqual({ kind: "stop", pids: [300], force: false });
+});
+
+test("a port that answers HTTP: o opens it, so does a click on its URL; others say why not", () => {
+	const height = 24;
+	let s = applySnapshot(initialState(999), base, 0);
+	[s] = keys(s, "/", "8080", "return");
+	const row = selectedRow(s);
+	if (!row) throw new Error("no 8080");
+	// not asked yet
+	let effect: ReturnType<typeof handleKey>[1];
+	[s, effect] = keys(s, "o");
+	expect(effect).toBeUndefined();
+	expect(s.message?.text).toContain("whether it answers HTTP");
+	const url = "http://localhost:8080";
+	s = { ...s, web: { [row.key]: { kind: "page", url, status: 200 } } };
+	[s, effect] = keys(s, "o");
+	expect(effect).toEqual({ kind: "open", url, row });
+	const text = render(s, 100, height, { color: false, now: 0 }).join("\n");
+	expect(text).toContain(`url        ${url}  page`);
+	expect(text).toContain("↑↓ select  o open  k stop");
+	// the URL is the details' first line, under the rule
+	const [, click] = handleMouse(
+		s,
+		{ button: 0, x: 20, y: TABLE_TOP + tableRoom(height) + 1, pressed: true },
+		height,
+	);
+	expect(click).toEqual({ kind: "open", url, row });
+	s = { ...s, web: { [row.key]: { kind: "none" } } };
+	[s, effect] = keys(s, "o");
+	expect(effect).toBeUndefined();
+	expect(s.message?.text).toBe("tcp 8080 doesn't answer HTTP: nothing to open");
+	// refreshing asks again what didn't answer
+	[s] = keys(s, "r");
+	expect(s.web).toEqual({});
+});
+
+test("--no-probe: no port is asked; o opens its http URL, never a database", () => {
+	let s = applySnapshot(initialState(999, false), fixture([pg]), 0);
+	[s] = keys(s, "/", "8080", "return");
+	const row = selectedRow(s);
+	if (!row) throw new Error("no 8080");
+	let effect: ReturnType<typeof handleKey>[1];
+	[s, effect] = keys(s, "o");
+	// bound to the LAN address alone: that is where to open it
+	expect(effect).toEqual({
+		kind: "open",
+		url: "http://192.168.1.10:8080",
+		row,
+	});
+	expect(render(s, 100, 24, { color: false, now: 0 }).join("\n")).toContain(
+		"url        http://192.168.1.10:8080  not checked",
+	);
+	[s] = keys(s, "escape", "/", "5432", "return");
+	[s, effect] = keys(s, "o");
+	expect(effect).toBeUndefined();
+	expect(s.message?.text).toContain("doesn't answer HTTP");
 });

@@ -35,6 +35,7 @@ export function paint(o: RenderOptions) {
 		magenta: wrap("35"),
 		cyan: wrap("36"),
 		inverse: wrap("7"),
+		underline: wrap("4"),
 	};
 }
 

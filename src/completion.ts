@@ -15,7 +15,7 @@ export interface PortCandidate {
 }
 
 /** The commands that take a port, and offer the ones listening now. */
-const TAKES_PORT = new Set(["who", "kill"]);
+const TAKES_PORT = new Set(["who", "kill", "open"]);
 
 /** --long for an OPTIONS key: "-y, --yes" gives --yes. */
 const long = (key: string) =>

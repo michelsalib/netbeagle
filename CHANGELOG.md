@@ -2,6 +2,36 @@
 
 All notable changes to netbeagle. Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+### Changed
+
+- `watch` is easier to read: the port number stands out, the checkout is coloured, how far a port
+  reaches is green when only this machine can reach it and yellow when every interface can, and rows
+  you can't act on (another user's process, a closed port) are faded. The selection is a bar across
+  the screen, a rule titled with the selected port separates the details and says which rows show
+  (`1–16 of 22`), and messages get their own line so the keys stay in sight.
+
+### Added
+
+- `netbeagle open PORT` opens what listens on PORT in the browser (in WSL, Windows' browser), once it
+  answered HTTP or HTTPS; `netbeagle open` alone lists every port a browser can open, page or API, with
+  what holds it. Databases, caches, DNS and ssh are never asked: Redis takes an HTTP request for an
+  attack. Certificates are checked: HTTPS with one this machine doesn't trust (a dev
+  server's own) is listed as such, for the browser to warn about.
+- `watch` asks the selected port (only that one, once selected) whether it answers HTTP, and shows its
+  URL first in the details; `o`, or a click on the URL, opens it.
+- `--no-probe` (`watch`, `open PORT`): no port is asked anything; `o` and `open PORT` open
+  `http://localhost:PORT` as is, databases and the like excepted.
+- The mouse in `watch`: click a port to select it, scroll with the wheel, click a key on the last line
+  (`k stop`, `y yes`, `esc clear filter`) to press it. Shift-drag still selects text in most terminals.
+
+### Fixed
+
+- A server Claude started in an Orca worktree showed `· Orca` instead of `· claude` when Claude's shell
+  had `cd`ed into the worktree first: Orca is now recognised by its own files, not by a path under
+  `~/orca/`.
+
 ## 0.6.0 (2026-10-14)
 
 ### Added

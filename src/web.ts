@@ -12,7 +12,14 @@ import type { Snapshot } from "./model.ts";
 import { isLoopback, isWildcard } from "./net.ts";
 
 export type Web =
-	| { kind: "page" | "api"; url: string; status: number; type?: string }
+	| {
+			kind: "page" | "api";
+			url: string;
+			status: number;
+			type?: string;
+			/** HTTPS with a certificate this machine doesn't trust (a dev server's own): not read. */
+			untrusted?: boolean;
+	  }
 	// --no-probe: never asked, so only its likely URL
 	| { kind: "unchecked"; url: string }
 	| { kind: "none" };
@@ -62,7 +69,13 @@ export function hostOf(l: Listener): { address: string; host: string } {
 interface Answer {
 	status: number;
 	type?: string;
+	untrusted?: boolean;
 }
+
+/** A TLS error about the certificate: a server answered HTTPS with one this machine doesn't trust. */
+export const certificateError = (code: unknown) =>
+	typeof code === "string" &&
+	/CERT|SELF_SIGNED|UNABLE_TO_(VERIFY|GET_ISSUER)/.test(code);
 
 /** One GET /, answered or not within `timeout` ms. */
 function ask(
@@ -80,10 +93,7 @@ function ask(
 			headers: { accept: "text/html,*/*", "user-agent": "netbeagle" },
 			agent: false,
 		};
-		const req = secure
-			? // a dev server's own certificate: still a page to open
-				https.request({ ...options, rejectUnauthorized: false })
-			: http.request(options);
+		const req = secure ? https.request(options) : http.request(options);
 		// a timer of its own: Bun, which builds the standalone binaries, ignores request's timeout
 		const timer = setTimeout(() => {
 			req.destroy();
@@ -100,13 +110,22 @@ function ask(
 			});
 			res.destroy();
 		});
-		req.on("error", () => settle());
+		// certificates are checked: one not trusted still says HTTPS answers, though not what with
+		req.on("error", (e: NodeJS.ErrnoException) =>
+			settle(
+				secure && certificateError(e.code)
+					? { status: 0, untrusted: true }
+					: undefined,
+			),
+		);
 		req.end();
 	});
 }
 
 /** A page: HTML, or a redirect or a login on the way to one. Any other answer is an API. */
 export const classify = (a: Answer): "page" | "api" =>
+	// what is behind an untrusted certificate is unknown: a browser is where to find out
+	a.untrusted ||
 	/html/i.test(a.type ?? "") ||
 	(a.status >= 300 && a.status < 400) ||
 	a.status === 401
@@ -125,6 +144,7 @@ export async function probe(l: Listener, timeout = 800): Promise<Web> {
 				url: `${secure ? "https" : "http"}://${host}:${l.port}`,
 				status: a.status,
 				type: a.type?.split(";")[0],
+				...(a.untrusted && { untrusted: true }),
 			};
 	}
 	return { kind: "none" };
@@ -141,6 +161,7 @@ export const unchecked = (l: Listener): Web =>
 export function webLabel(w: Web): string {
 	if (w.kind === "none") return "";
 	if (w.kind === "unchecked") return "not checked";
+	if (w.untrusted) return "HTTPS, untrusted certificate";
 	if (w.kind === "page")
 		return w.status === 200 ? "page" : `page (${w.status})`;
 	return `API (${[w.status, w.type].filter(Boolean).join(" ")})`;

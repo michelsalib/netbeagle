@@ -1,8 +1,14 @@
 import { afterAll, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { createServer as createHttp } from "node:http";
+import { createServer as createHttps } from "node:https";
 import { createServer as createTcp, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Listener } from "../src/analyze.ts";
 import {
+	certificateError,
 	classify,
 	hostOf,
 	notWeb,
@@ -129,4 +135,57 @@ test("opening: each system's opener; in WSL, a port Windows can't reach is said,
 	expect(await openUrl(url, listener(3000, ["::1"]), "wsl")).toContain(
 		"Windows' browser can't reach it",
 	);
+});
+
+const openssl = spawnSync("openssl", ["version"]).status === 0;
+test.skipIf(!openssl)(
+	"HTTPS with a certificate nobody trusts: checked, not turned off, and still found",
+	async () => {
+		const dir = mkdtempSync(join(tmpdir(), "netbeagle-tls-"));
+		const [key, cert] = [join(dir, "key.pem"), join(dir, "cert.pem")];
+		const made = spawnSync("openssl", [
+			"req",
+			"-x509",
+			"-newkey",
+			"rsa:2048",
+			"-nodes",
+			"-days",
+			"1",
+			"-subj",
+			"/CN=localhost",
+			"-keyout",
+			key,
+			"-out",
+			cert,
+		]);
+		expect(made.status).toBe(0);
+		const port = await listen(
+			createHttps(
+				{ key: readFileSync(key), cert: readFileSync(cert) },
+				(_, res) => {
+					res.writeHead(200, { "content-type": "text/html" }).end("hi");
+				},
+			),
+		);
+		const w = await probe(listener(port));
+		expect(w).toMatchObject({
+			kind: "page",
+			url: `https://localhost:${port}`,
+			untrusted: true,
+		});
+		expect(webLabel(w)).toBe("HTTPS, untrusted certificate");
+	},
+);
+
+test("certificate errors, as Node and Bun name them, and others that aren't", () => {
+	for (const code of [
+		"DEPTH_ZERO_SELF_SIGNED_CERT",
+		"SELF_SIGNED_CERT_IN_CHAIN",
+		"UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+		"ERR_TLS_CERT_ALTNAME_INVALID",
+		"CERT_HAS_EXPIRED",
+	])
+		expect(certificateError(code)).toBe(true);
+	for (const code of ["ECONNRESET", "EPROTO", "ECONNREFUSED", undefined])
+		expect(certificateError(code)).toBe(false);
 });

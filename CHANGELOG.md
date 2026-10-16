@@ -17,7 +17,8 @@ All notable changes to netbeagle. Versions follow [semantic versioning](https://
 - `netbeagle open PORT` opens what listens on PORT in the browser (in WSL, Windows' browser), once it
   answered HTTP or HTTPS; `netbeagle open` alone lists every port a browser can open, page or API, with
   what holds it. Databases, caches, DNS and ssh are never asked: Redis takes an HTTP request for an
-  attack.
+  attack. Certificates are checked: HTTPS with one this machine doesn't trust (a dev
+  server's own) is listed as such, for the browser to warn about.
 - `watch` asks the selected port (only that one, once selected) whether it answers HTTP, and shows its
   URL first in the details; `o`, or a click on the URL, opens it.
 - `--no-probe` (`watch`, `open PORT`): no port is asked anything; `o` and `open PORT` open

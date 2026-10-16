@@ -2,7 +2,7 @@
 
 All notable changes to netbeagle. Versions follow [semantic versioning](https://semver.org).
 
-## Unreleased
+## 0.7.0 (2026-10-16)
 
 ### Changed
 

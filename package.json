@@ -1,6 +1,6 @@
 {
 	"name": "netbeagle",
-	"version": "0.6.0",
+	"version": "0.7.0",
 	"description": "See which process listens on each port, which interfaces reach it, and how everything on your machine connects",
 	"keywords": [
 		"network",
